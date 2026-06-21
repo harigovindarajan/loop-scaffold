@@ -1,0 +1,7 @@
+{
+  "name": "minimal-loop",
+  "stages": [
+    { "name": "implement", "kind": "agent",  "next": "verify" },
+    { "name": "verify",    "kind": "verify", "next": null     }
+  ]
+}

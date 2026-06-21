@@ -1,0 +1,3 @@
+{"id": "item-001", "status": "done", "stage": null, "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["src/auth/login.ts"], "updatedAt": "2026-06-21T09:48:26Z", "metadata": {"task": "implement password login"}}
+{"id": "item-002", "status": "in-progress", "stage": "review", "attempts": 1, "lastError": {"code": "retryable-defect", "note": "first review rejected: missing rate-limit check"}, "needsHuman": false, "artifacts": ["src/auth/reset.ts"], "updatedAt": "2026-06-21T09:52:10Z", "metadata": {"task": "implement password reset"}}
+{"id": "item-003", "status": "pending", "stage": "implement", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": [], "updatedAt": "2026-06-21T09:45:00Z", "metadata": {"task": "implement logout"}}
