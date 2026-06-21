@@ -104,6 +104,12 @@ A `checkpoint` rejection is a `retryable-defect` against the rejected stage unle
 reviewer escalates it to a `human-exception`. A `verify` failure is a
 `retryable-defect` unless its cause is environmental (`blocked-environment`).
 
+`retryable-defect` always re-attempts the **same** stage — the kernel never reopens an
+item to an earlier stage. When a defect surfaced at one stage is rooted in an earlier
+one (e.g. a `verify` failure caused by bad `agent` output), the re-attempt fixes it in
+place. Reopening to a specific earlier stage is a richer behavior that lives in the
+canon, not this kernel.
+
 ---
 
 ## 5. Core invariant
