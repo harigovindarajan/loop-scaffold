@@ -1,2 +1,4 @@
 # Planning and repo-establishment material — kept on disk, out of version control.
-docs/
+# Everything directly under docs/ is ignored EXCEPT the compounding knowledge store.
+/docs/*
+!/docs/solutions/
