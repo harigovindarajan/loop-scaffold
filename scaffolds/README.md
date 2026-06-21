@@ -3,6 +3,10 @@
 Starter scaffolds and an example ledger for the portable agent loop. Copy a starter to
 begin a loop; this directory does not define the formats — [`LOOP.md`](../LOOP.md) does.
 
+To have an agent build a loop tailored to your task instead of copying a starter, follow
+[`prompts/construct-loop.md`](../prompts/construct-loop.md) (it composes one via the
+[`INTERVIEW.md`](../INTERVIEW.md) interview).
+
 ## What's here
 
 | File | What it is |

@@ -12,16 +12,29 @@ scaffold shape, the work-item row, the one-transition-per-iteration invariant, a
 failure taxonomy. With `LOOP.md` and a task, you can run a correct loop. If you only read
 one file, read that one.
 
+To build a loop **for a specific task**, read [`INTERVIEW.md`](INTERVIEW.md): it tells an
+agent what to ask the user and how to turn the answers into a pipeline.
+
 ## What's in the repo
 
 | File | Purpose |
 | --- | --- |
 | [`LOOP.md`](LOOP.md) | The normative kernel. Read first; everything else references it. |
+| [`INTERVIEW.md`](INTERVIEW.md) | The interview an agent runs, and how answers compose into a loop. |
 | [`AUTHORING.md`](AUTHORING.md) | The one authoring rule: reference the kernel, never restate it. |
 | [`LINTER.md`](LINTER.md) | Contract for the deferred reference linter (built in v1.1). |
 | [`scaffolds/`](scaffolds/) | Copy-pasteable starter pipelines and an example ledger. |
+| [`prompts/`](prompts/) | Runnable prompts: construct a loop, run one iteration. |
 
 ## Quickstart
+
+**Build a loop for your task (recommended).** Have an agent follow
+[`prompts/construct-loop.md`](prompts/construct-loop.md): it runs the
+[`INTERVIEW.md`](INTERVIEW.md) interview, composes a `loop.json`, seeds the ledger, and
+presents the loop for your adjustment. Then run it one step at a time with
+[`prompts/run-one-iteration.md`](prompts/run-one-iteration.md).
+
+**Or start from a shipped starter:**
 
 ```sh
 cp scaffolds/loop.minimal.json loop.json   # 1. pick a pipeline (or loop.checkpoint.json)
@@ -35,6 +48,8 @@ ledger.
 
 ## Status
 
-v1 ships the kernel (`LOOP.md`), the authoring rule, the linter contract, and the
-scaffolds. The expository canon docs, prompt pack, worked examples, and agent adapters are
-forthcoming — each will reference `LOOP.md` rather than re-declare it.
+v1 ships the kernel (`LOOP.md`), the authoring rule, the linter contract, the scaffolds,
+and the interview + construct/run prompts. The expository canon docs, the remaining prompts
+(checkpoint review, failure classification, reopen), durable-handoff templates, worked
+examples, and agent adapters are forthcoming — each will reference `LOOP.md` rather than
+re-declare it.
