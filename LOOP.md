@@ -38,13 +38,15 @@ You never write the scaffold during a run.
   "name": "example-loop",
   "stages": [
     { "name": "implement", "kind": "agent",      "next": "review"  },
-    { "name": "review",    "kind": "checkpoint", "next": "verify"  },
+    { "name": "review",    "kind": "checkpoint", "next": "verify",
+      "instructions": "docs/review-rules.md" },
     { "name": "verify",    "kind": "verify",     "next": null      }
   ]
 }
 ```
 
-A **stage** has exactly three fields — this is the stage contract:
+A **stage** has three required fields and one optional fourth — this is the stage
+contract:
 
 - `name` — unique stage identifier, referenced by a work item's `stage`.
 - `kind` — one of a closed set:
@@ -53,6 +55,10 @@ A **stage** has exactly three fields — this is the stage contract:
   - `verify` — a defined check decides pass or fail.
 - `next` — the `name` of the stage to advance to on success, or `null` for the
   terminal stage (after it, the item is `done`).
+- `instructions` *(optional)* — a path, or an array of paths, to the docs that define
+  this stage's behavior (its runbook — e.g. review rules a `checkpoint` enforces, or the
+  rule sets a `verify` checks against). The kernel does not interpret their contents;
+  they make a resumed stage self-contained. Stages without dedicated docs omit the field.
 
 The first stage in the list is the entry stage for every new work item.
 
@@ -103,6 +109,12 @@ Every stage attempt resolves to exactly one of these codes. This is a closed set
 A `checkpoint` rejection is a `retryable-defect` against the rejected stage unless the
 reviewer escalates it to a `human-exception`. A `verify` failure is a
 `retryable-defect` unless its cause is environmental (`blocked-environment`).
+
+A checkpoint rejection is repaired by editing the artifact, which an earlier stage owns —
+re-running the checkpoint in place would only re-review the unchanged artifact. So the
+item is routed back to its producing stage by the **reopen** behavior defined in canon
+(`prompts/reopen-item.md`), not here; the kernel itself still only re-attempts the same
+stage in place (next paragraph).
 
 `retryable-defect` always re-attempts the **same** stage — the kernel never reopens an
 item to an earlier stage. When a defect surfaced at one stage is rooted in an earlier
@@ -172,8 +184,24 @@ Then the iteration ends. Begin the next iteration from "Pick the next item".
 
 You may stop after any completed iteration — the state file fully describes where every
 item is. To resume, read `loop.state.jsonl` and `loop.json` and continue from "Pick the
-next item". No in-memory state carries across a stop; nothing outside these two files is
-required to resume.
+next item". No in-memory state carries across a stop: these two files fully describe the
+loop's **state and position**. *Executing* a resumed stage may also need that stage's
+runbook — the docs named in its `instructions` (§2), or the adapter and task docs — which
+say what the stage does, not where the loop is.
+
+### Unpark (return a parked item to the loop)
+
+A `blocked` or `needs-human` item is skipped by "Pick the next item" forever, so it needs
+an explicit way back. When the block clears, rewrite the row:
+
+- A `blocked` item whose environmental block has cleared → `status: "in-progress"`, same
+  `stage`.
+- A `needs-human` item once the human input arrives → `status: "in-progress"`,
+  `needsHuman: false`, same `stage`, recording what was provided (e.g. in `metadata`).
+
+This rewrite is setup, not an iteration — like seeding, it runs no stage and is not the
+single transition of Section 5. The item then resumes from "Pick the next item" at the
+stage it was parked on. The companion prompt is `prompts/resume-parked-item.md`.
 
 ---
 

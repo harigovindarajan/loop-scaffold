@@ -24,7 +24,7 @@ agent what to ask the user and how to turn the answers into a pipeline.
 | [`AUTHORING.md`](AUTHORING.md) | The one authoring rule: reference the kernel, never restate it. |
 | [`LINTER.md`](LINTER.md) | Contract for the deferred reference linter (built in v1.1). |
 | [`scaffolds/`](scaffolds/) | Copy-pasteable starter pipelines and an example ledger. |
-| [`prompts/`](prompts/) | Runnable prompts: construct a loop, run one iteration. |
+| [`prompts/`](prompts/) | Runnable prompts: construct a loop, run one iteration, reopen a checkpoint-rejected item, resume a parked item. |
 
 ## Quickstart
 
@@ -49,7 +49,7 @@ ledger.
 ## Status
 
 v1 ships the kernel (`LOOP.md`), the authoring rule, the linter contract, the scaffolds,
-and the interview + construct/run prompts. The expository canon docs, the remaining prompts
-(checkpoint review, failure classification, reopen), durable-handoff templates, worked
-examples, and agent adapters are forthcoming — each will reference `LOOP.md` rather than
-re-declare it.
+and the interview + construct/run/reopen/resume-parked prompts. The expository canon docs,
+the remaining prompts (checkpoint review, failure classification), durable-handoff
+templates, worked examples, and agent adapters are forthcoming — each will reference
+`LOOP.md` rather than re-declare it.

@@ -97,5 +97,6 @@ exactly the kernel's intended (now documented) behavior.
 
 - `LOOP.md` §4 (failure taxonomy) and §6 (operating the loop) — the kernel this learning
   refined.
-- Future canon `reopen-item` prompt — the home for the reopen-to-earlier-stage behavior
-  deferred out of the kernel.
+- [`prompts/reopen-item.md`](../../../prompts/reopen-item.md) — the canon home for the
+  reopen-to-earlier-stage behavior deferred out of the kernel (used for checkpoint
+  rejections).

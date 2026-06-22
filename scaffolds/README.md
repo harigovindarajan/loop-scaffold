@@ -23,8 +23,10 @@ not re-declare them.
 - **`loop.json`** — the scaffold: a single JSON object naming the ordered stages every
   work item passes through. The stage contract (`name`, `kind`, `next`) and the stage
   kinds (`agent`, `checkpoint`, `verify`) are defined in
-  [`LOOP.md` §2](../LOOP.md#2-scaffold-shape). The two starters here are valid `loop.json`
-  files — copy one.
+  [`LOOP.md` §2](../LOOP.md#2-scaffold-shape). A stage may also carry an optional
+  `instructions` field (a path or array of paths to its runbook docs) — a self-containment
+  aid for resuming, defined in `LOOP.md` §2. The two starters here omit it, showing it is
+  optional; the two starters are valid `loop.json` files — copy one.
 - **`loop.state.jsonl`** — the ledger: one JSON object per line, one line per work item.
   The row shape and the meaning of `status`, `stage`, and `attempts` are defined in
   [`LOOP.md` §3](../LOOP.md#3-work-item-row-shape). `loop.state.example.jsonl` shows that
