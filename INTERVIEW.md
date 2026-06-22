@@ -78,6 +78,11 @@ The stage contract (`name`, `kind`, `next`) and the closed set of kinds
 [`LOOP.md` §2](LOOP.md#2-scaffold-shape). Compose only valid stages; the first stage
 is the entry stage for every unit.
 
+If the user names rule or runbook docs a stage depends on — what a `verify` checks
+against, or the rules a `checkpoint` review enforces — record them in that stage's
+optional `instructions` field (`LOOP.md` §2). It is optional; omit it for stages with no
+dedicated docs.
+
 **Worked example.** Answers — phases: *implement*; approval before merge: yes;
 verification: a test suite — compose:
 
@@ -92,22 +97,30 @@ in `verify` (the shape of `scaffolds/loop.minimal.json`).
 
 ## 3. Output contract
 
-When the interview is done, produce:
+When the interview is done, produce these in order — **scaffold first, ledger only after
+the user approves the scaffold**, so a late stage change cannot strand rows at the wrong
+entry stage:
 
-- **A scaffold** — a `loop.json` whose `stages` are the composed pipeline, in the
-  shape of [`LOOP.md` §2](LOOP.md#2-scaffold-shape). It must be well-formed by the
-  [`LINTER.md`](LINTER.md) checks.
-- **A seeded ledger** — one `loop.state.jsonl` row per unit of work, seeded per
-  [`LOOP.md` §6, "Seed the work items"](LOOP.md#6-operating-the-loop). The row shape
-  is defined in [`LOOP.md` §3](LOOP.md#3-work-item-row-shape) — do not re-declare it.
-- **Captured handoff guidance** — the Q6 answer recorded in each row's free-form
-  `metadata` (e.g. `metadata.handoff`). This slice ships no handoff template files;
-  do not reference a `handoff-templates/` directory as if it exists.
-- **A verification plan** — what the terminal `verify` stage checks (the Q5 answer),
-  noted so the run knows what "pass" means.
+1. **A scaffold** — a `loop.json` whose `stages` are the composed pipeline, in the
+   shape of [`LOOP.md` §2](LOOP.md#2-scaffold-shape). It must conform to
+   [`LOOP.md`](LOOP.md); [`LINTER.md`](LINTER.md) describes the future machine-checkable
+   contract for that conformance. Where a stage has dedicated rule or runbook docs (e.g.
+   the rules a `verify` checks against, or a `checkpoint`'s review rules), record them in
+   that stage's optional `instructions` field (`LOOP.md` §2) — a path or array of paths.
+2. **A verification plan** — what the terminal `verify` stage checks (the Q5 answer),
+   noted so the run knows what "pass" means.
+3. **Present the scaffold for adjustment.** Show the composed loop and let the user add,
+   remove, or reorder stages and move checkpoints. The composed loop is a sensible
+   starting point, not a lock.
+4. **A seeded ledger — after the user accepts the scaffold** — one `loop.state.jsonl` row
+   per unit of work, at the accepted scaffold's entry stage, seeded per
+   [`LOOP.md` §6, "Seed the work items"](LOOP.md#6-operating-the-loop). The row shape is
+   defined in [`LOOP.md` §3](LOOP.md#3-work-item-row-shape) — do not re-declare it. Record
+   the Q6 handoff in each row's free-form `metadata` (e.g. `metadata.handoff`); this slice
+   ships no handoff template files, so do not reference a `handoff-templates/` directory as
+   if it exists.
 
-Present the composed loop to the user and let them adjust it — add, remove, or
-reorder stages, move checkpoints — **before** the first iteration. The composed loop
-is a sensible starting point, not a lock.
+If stages or the unit-of-work decomposition change before the first iteration, discard the
+draft ledger and reseed from the accepted scaffold.
 
 To run it, follow [`prompts/run-one-iteration.md`](prompts/run-one-iteration.md).

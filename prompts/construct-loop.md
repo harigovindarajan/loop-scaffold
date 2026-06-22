@@ -36,8 +36,13 @@ Check each before emitting. These are pointers, not definitions:
 - **Handoff in metadata** — record the Q6 answer in each row's free-form `metadata`
   (e.g. `metadata.handoff`). Never add a top-level row field; never reference
   `handoff-templates/` as existing.
-- **Well-formed output** — the emitted `loop.json` and ledger must pass the
-  [`LINTER.md`](../LINTER.md) checks.
+- **Per-stage runbook docs** — when the user names rule or runbook docs a stage depends on
+  (what a `verify` checks against, a `checkpoint`'s review rules), emit them in that
+  stage's optional `instructions` field (a path or array of paths). Optional; see
+  [`LOOP.md` §2](../LOOP.md#2-scaffold-shape).
+- **Conformant output** — the emitted `loop.json` and ledger must conform to
+  [`LOOP.md`](../LOOP.md); [`LINTER.md`](../LINTER.md) describes the future
+  machine-checkable contract for that conformance.
 - **Reference, don't restate** — per [`AUTHORING.md`](../AUTHORING.md), point at
   `LOOP.md` for any format detail; do not re-declare the row or stage shape.
 
@@ -45,13 +50,18 @@ Check each before emitting. These are pointers, not definitions:
 
 ## Output structure
 
-Emit, in this order:
+Emit, in this order — **scaffold first, ledger only after the user approves the
+scaffold**, so a late stage change cannot strand rows at the wrong entry stage:
 
-1. **`loop.json`** — the composed scaffold (`LOOP.md` §2 shape).
-2. **`loop.state.jsonl`** — one seeded row per unit of work (`LOOP.md` §3 shape, seeded
-   per §6), with the durable handoff in each row's `metadata`.
-3. **A verification note** — what the terminal `verify` stage checks (the Q5 answer).
+1. **`loop.json`** — the composed scaffold (`LOOP.md` §2 shape), with any per-stage
+   runbook docs in each stage's optional `instructions` field.
+2. **A verification note** — what the terminal `verify` stage checks (the Q5 answer).
+3. **Present the composed scaffold to the user for adjustment** — they may add, remove,
+   or reorder stages or move checkpoints — **before** the ledger is seeded.
+4. **`loop.state.jsonl`** — *after the user accepts the scaffold* — one seeded row per
+   unit of work at the accepted entry stage (`LOOP.md` §3 shape, seeded per §6), with the
+   durable handoff in each row's `metadata`.
 
-Then **present the composed loop to the user for adjustment** — they may add, remove,
-or reorder stages or move checkpoints — **before** the first iteration. Once they
-accept it, run it with [`prompts/run-one-iteration.md`](run-one-iteration.md).
+If stages or the unit-of-work decomposition change before the first iteration, discard the
+draft ledger and reseed from the accepted scaffold. Once accepted, run it with
+[`prompts/run-one-iteration.md`](run-one-iteration.md).

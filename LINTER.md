@@ -42,6 +42,8 @@ The linter asserts, against the formats in `LOOP.md`:
 **Scaffold (`LOOP.md` §2)**
 - The scaffold parses as JSON and has a non-empty `stages` list.
 - Every stage has `name`, `kind`, and `next`.
+- If a stage carries the optional `instructions` field, it is a string or an array of
+  strings (`LOOP.md` §2). Stages without it are still well-formed.
 - Every `name` is unique within the scaffold.
 - Every `kind` is in the closed set `agent | checkpoint | verify`.
 - Every `next` is either `null` or the `name` of another stage (no dangling targets).
@@ -59,6 +61,8 @@ The linter asserts, against the formats in `LOOP.md`:
   (`LOOP.md` §4).
 - Cross-field consistency: `needsHuman: true` iff `status` is `needs-human`;
   `attempts` is a non-negative integer; `updatedAt` is a valid ISO-8601 timestamp.
+- A `done` row has `stage: null` and `attempts: 0` — the kernel resets `attempts` to `0`
+  on every `pass`, including the terminal one (`LOOP.md` §6, "Persist the transition").
 
 **Invariant (`LOOP.md` §5)**
 - The invariant is structurally representable: each state line is a single row at a
