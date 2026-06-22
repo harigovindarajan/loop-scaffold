@@ -28,9 +28,13 @@ Do exactly one iteration, in this order — all per
   was `pending`, flip it to `in-progress` as part of this iteration's single write.
 - **Classify** the outcome as exactly one failure-taxonomy code —
   [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy).
-- **Persist** the code's effect: apply it, set `updatedAt`, and on `pass` advance
-  `stage` to `next` (resetting `attempts`), setting `status: done` and `stage: null`
-  when `next` is `null`.
+- **Checkpoint reject special case** — if a `checkpoint` rejects and the outcome is the
+  taxonomy's `retryable-defect`, do not persist the same-stage retry effect here. Use
+  [`reopen-item`](reopen-item.md) instead; it performs this iteration's single write and
+  routes the item back to the producing stage with the reviewer feedback attached.
+- **Otherwise persist** the code's effect: apply it, set `updatedAt`, and on `pass`
+  advance `stage` to `next` (resetting `attempts`), setting `status: done` and
+  `stage: null` when `next` is `null`.
 - **One transition only** — select one item, attempt one stage, write one line. This is
   the [`LOOP.md` §5](../LOOP.md#5-core-invariant) invariant.
 

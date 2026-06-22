@@ -30,8 +30,9 @@ agent what to ask the user and how to turn the answers into a pipeline.
 
 **Build a loop for your task (recommended).** Have an agent follow
 [`prompts/construct-loop.md`](prompts/construct-loop.md): it runs the
-[`INTERVIEW.md`](INTERVIEW.md) interview, composes a `loop.json`, seeds the ledger, and
-presents the loop for your adjustment. Then run it one step at a time with
+[`INTERVIEW.md`](INTERVIEW.md) interview, composes a `loop.json`, presents the scaffold
+for your adjustment, and then seeds the ledger from the accepted scaffold. Then run it
+one step at a time with
 [`prompts/run-one-iteration.md`](prompts/run-one-iteration.md).
 
 **Or start from a shipped starter:**
