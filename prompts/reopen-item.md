@@ -49,6 +49,22 @@ Read both files; nothing outside them carries loop state.
 
 ## Output structure
 
+Before writing, run this self-check against the kernel and the reopen behavior above:
+
+- Row write and row well-formedness pass
+  [`LOOP.md` §3](../LOOP.md#3-work-item-row-shape).
+- Closed value and taxonomy-code usage pass
+  [`LOOP.md` §3](../LOOP.md#3-work-item-row-shape) and
+  [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy).
+- The checkpoint-reject route landed on the producer stage with preserved reviewer
+  feedback and the rewrite matches the canon reopen effect above, as layered on
+  [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy) and
+  [`LOOP.md` §6](../LOOP.md#6-operating-the-loop).
+- The iteration passes the core-invariant check in
+  [`LOOP.md` §5](../LOOP.md#5-core-invariant).
+
+If any check fails, recompute the line before writing it.
+
 Write back **exactly one** rewritten line for the reopened item — the whole line, never a
 partial edit. The item is now at the producer stage with the review feedback attached: the
 next [`run-one-iteration`](run-one-iteration.md) picks it up there, the agent repairs the

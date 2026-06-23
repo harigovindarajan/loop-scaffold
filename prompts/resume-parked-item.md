@@ -46,6 +46,11 @@ resolved. Read both files; nothing outside them carries loop state.
 
 ## Output structure
 
+Before writing, confirm the administrative rewrite passes the row well-formedness check in
+[`LOOP.md` §3](../LOOP.md#3-work-item-row-shape) and changes only the intended row. This
+is an administrative unpark, so do not apply the transition-effect checks from
+[`LOOP.md` §4](../LOOP.md#4-failure-taxonomy).
+
 Write back **exactly one** rewritten line for the unparked item — the whole line, never a
 partial edit. The item is now actionable at the stage it was parked on; the next
 [`run-one-iteration`](run-one-iteration.md) picks it up from there.
