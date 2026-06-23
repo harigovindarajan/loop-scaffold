@@ -42,6 +42,21 @@ Do exactly one iteration, in this order — all per
 
 ## Output structure
 
+Before writing, run this self-check against the kernel:
+
+- Row write and row well-formedness pass
+  [`LOOP.md` §3](../LOOP.md#3-work-item-row-shape).
+- Closed value and taxonomy-code usage pass
+  [`LOOP.md` §3](../LOOP.md#3-work-item-row-shape) and
+  [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy).
+- The resolved code's persisted effect passes [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy)
+  and the persist-step rules in
+  [`LOOP.md` §6](../LOOP.md#6-operating-the-loop).
+- The iteration passes the core-invariant check in
+  [`LOOP.md` §5](../LOOP.md#5-core-invariant).
+
+If any check fails, recompute the line before writing it.
+
 Write back **exactly one** rewritten line to `loop.state.jsonl` — the whole line for
 the single item you advanced, never a partial edit. Then the iteration ends; invoke
 this prompt again to run the next one. You may stop after any completed iteration and

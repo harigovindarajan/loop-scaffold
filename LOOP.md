@@ -236,7 +236,8 @@ docs:
 - Checkpoint review depth, blocking vs non-blocking gates, reopen targets.
 - Durable handoff artifact templates (contract, implementation plan, review notes,
   verification report).
-- Worked examples and migrations.
+- Worked examples and migrations, including the narrated trace in
+  [`WALKTHROUGH.md`](WALKTHROUGH.md).
 - Multi-agent and non-linear loops — the kernel covers the single-agent linear case only.
 
 If you need any of the above, follow the canon doc that references this kernel. Do not
