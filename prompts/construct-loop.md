@@ -36,6 +36,11 @@ Check each before emitting. These are pointers, not definitions:
 - **Handoff in metadata** — record the Q6 answer in each row's free-form `metadata`
   (e.g. `metadata.handoff`). Never add a top-level row field; never reference
   `handoff-templates/` as existing.
+- **Acceptance stamp in metadata** — stamp each seeded row's `metadata` with
+  `metadata.acceptedAt` (ISO-8601 of when the user accepted the scaffold). This is the
+  on-disk trace that the acceptance gate (output step 3) ran before seeding; it reuses the
+  same `metadata` channel — no new field, no new file. Strict-mode linting checks for it
+  ([`LINTER.md`](../LINTER.md)).
 - **Per-stage runbook docs** — when the user names rule or runbook docs a stage depends on
   (what a `verify` checks against, a `checkpoint`'s review rules), emit them in that
   stage's optional `instructions` field (a path or array of paths). Optional; see
@@ -60,7 +65,7 @@ scaffold**, so a late stage change cannot strand rows at the wrong entry stage:
    or reorder stages or move checkpoints — **before** the ledger is seeded.
 4. **`loop.state.jsonl`** — *after the user accepts the scaffold* — one seeded row per
    unit of work at the accepted entry stage (`LOOP.md` §3 shape, seeded per §6), with the
-   durable handoff in each row's `metadata`.
+   durable handoff and the `metadata.acceptedAt` acceptance stamp in each row's `metadata`.
 
 If stages or the unit-of-work decomposition change before the first iteration, discard the
 draft ledger and reseed from the accepted scaffold. Once accepted, run it with

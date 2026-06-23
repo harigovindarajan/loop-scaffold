@@ -13,6 +13,10 @@ The reference linter answers two questions about a loop, without running it:
 1. **Is this loop well-formed?** — do the scaffold and state files conform to the kernel?
 2. **Where is it?** — what is the current position and progress of the loop?
 
+An optional `--strict` mode adds a third, **was it constructed legitimately?** — a
+presence check on the acceptance stamp the construction flow records (see that section
+below). It stays off by default.
+
 It is a *checker*, never an *executor* (see "Hard non-goal" below).
 
 ## Design constraints
@@ -29,11 +33,12 @@ It is a *checker*, never an *executor* (see "Hard non-goal" below).
 The first linter should be the smallest useful checker:
 
 ```text
-loop-lint [--json] <loop.json> <loop.state.jsonl>
+loop-lint [--json] [--strict] <loop.json> <loop.state.jsonl>
 ```
 
 - Default output is human-readable, like the example below.
 - `--json` emits the same result as structured data for scripts and batch coordinators.
+- `--strict` adds the optional provenance check below; default runs shape checks only.
 - Exit `0` when scaffold and state are conformant.
 - Exit `1` when either file is readable but not conformant to this contract.
 - Exit `2` for invocation or file-access failures.
@@ -87,6 +92,23 @@ The linter asserts, against the formats in `LOOP.md`:
   `done` row still pointing at a non-terminal stage). The one-transition-per-iteration
   rule governs *writes*; the linter checks the *resulting* state is well-formed, not the
   write history.
+
+## "Was it constructed legitimately?" — optional provenance check (`--strict`)
+
+The default checks above validate file *shape* — they cannot tell whether the loop was
+built through the interview and acceptance gate, or composed-seeded-and-run in one step
+(the most common misuse; see [`INTERVIEW.md` §3](INTERVIEW.md#3-output-contract) and
+[`prompts/construct-loop.md`](prompts/construct-loop.md)). `--strict` adds one provenance
+check keyed off the acceptance stamp those docs require:
+
+- Every seeded row carries `metadata.acceptedAt` (an ISO-8601 timestamp). A row missing it
+  is reported as **seeded without recorded acceptance**.
+
+This is a presence-and-format check, not a proof: the linter confirms the stamp exists and
+parses, not that a human truly accepted the scaffold (a two-file design cannot prove that).
+It is deliberately scoped — it stays a checker, reads only the same two files, never
+executes a stage, and is off by default so a shape-only run is unchanged. In `--strict`, a
+missing or malformed stamp makes the state non-conformant (exit `1`).
 
 ## "Where is it?" — progress report
 

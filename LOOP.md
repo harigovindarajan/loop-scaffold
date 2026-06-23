@@ -139,6 +139,15 @@ what makes a loop resumable and checkable.
 
 ### Seed the work items (once, before the first iteration)
 
+**Precondition — an accepted scaffold.** Seeding presupposes a `loop.json` whose stages
+the user has accepted, produced by the interview and construction flow
+([`INTERVIEW.md`](INTERVIEW.md), [`prompts/construct-loop.md`](prompts/construct-loop.md)).
+If you hold a task but no accepted scaffold, you are **not ready to seed** — construct the
+scaffold and get it accepted first, then return here. Reading this kernel alone lets you
+*run* an already-constructed loop; it does not authorize composing a scaffold, seeding a
+ledger, and executing a stage in one step. Doing so is the most common way the loop is
+misused.
+
 Turn the task into work items. Decompose the task into the smallest units that each
 make sense to carry through the pipeline independently, and for each one append a row to
 `loop.state.jsonl` with `status: "pending"`, `stage` set to the scaffold's entry stage
