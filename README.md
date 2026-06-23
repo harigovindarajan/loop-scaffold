@@ -9,11 +9,15 @@ agent-specific lock-in.
 
 Read **[`LOOP.md`](LOOP.md)**. It is the whole kernel — the single source of truth for the
 scaffold shape, the work-item row, the one-transition-per-iteration invariant, and the
-failure taxonomy. With `LOOP.md` and a task, you can run a correct loop. If you only read
-one file, read that one.
+failure taxonomy. Reading it alone lets you **run an already-constructed loop**: with a
+`loop.json` and a seeded ledger in hand, you can advance it correctly.
 
-To build a loop **for a specific task**, read [`INTERVIEW.md`](INTERVIEW.md): it tells an
-agent what to ask the user and how to turn the answers into a pipeline.
+**Building a loop for a task comes first, and it is gated — do not seed a ledger straight
+from a task.** Read [`INTERVIEW.md`](INTERVIEW.md) and run
+[`prompts/construct-loop.md`](prompts/construct-loop.md): interview the user, compose
+`loop.json`, present it for acceptance, and seed `loop.state.jsonl` **only after the user
+accepts the scaffold**. Composing, seeding, and executing in a single step — skipping the
+interview and the acceptance gate — is the most common way the loop is misused.
 
 ## What's in the repo
 

@@ -118,7 +118,11 @@ entry stage:
    defined in [`LOOP.md` §3](LOOP.md#3-work-item-row-shape) — do not re-declare it. Record
    the Q6 handoff in each row's free-form `metadata` (e.g. `metadata.handoff`); this slice
    ships no handoff template files, so do not reference a `handoff-templates/` directory as
-   if it exists.
+   if it exists. Also stamp each row's `metadata` with the scaffold acceptance —
+   `metadata.acceptedAt`, the ISO-8601 time the user accepted the scaffold — so the ledger
+   carries on-disk proof it was seeded only after the acceptance gate. This reuses the
+   free-form `metadata` channel: no top-level row field, no new file. The reference linter
+   checks for this stamp in strict mode ([`LINTER.md`](LINTER.md)).
 
 If stages or the unit-of-work decomposition change before the first iteration, discard the
 draft ledger and reseed from the accepted scaffold.
