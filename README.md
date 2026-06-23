@@ -23,7 +23,8 @@ agent what to ask the user and how to turn the answers into a pipeline.
 | [`WALKTHROUGH.md`](WALKTHROUGH.md) | A narrated worked trace: how a row moves through every code and stage kind. |
 | [`INTERVIEW.md`](INTERVIEW.md) | The interview an agent runs, and how answers compose into a loop. |
 | [`AUTHORING.md`](AUTHORING.md) | The one authoring rule: reference the kernel, never restate it. |
-| [`LINTER.md`](LINTER.md) | Contract for the deferred reference linter (built in v1.1). |
+| [`LINTER.md`](LINTER.md) | Ready-to-build contract for the reference linter. |
+| [`BATCH-EXECUTION.md`](BATCH-EXECUTION.md) | Canon for safe multi-agent batch execution via independent loop shards. |
 | [`scaffolds/`](scaffolds/) | Copy-pasteable starter pipelines and an example ledger. |
 | [`prompts/`](prompts/) | Runnable prompts: construct a loop, run one iteration, reopen a checkpoint-rejected item, resume a parked item. |
 
@@ -50,8 +51,9 @@ ledger.
 
 ## Status
 
-v1 ships the kernel (`LOOP.md`), the authoring rule, the linter contract, the scaffolds,
-the worked trace, and the interview + construct/run/reopen/resume-parked prompts. The
-remaining expository canon docs, prompts (checkpoint review, failure classification),
-durable-handoff templates, migrations, and agent adapters are forthcoming — each will
-reference `LOOP.md` rather than re-declare it.
+v1 ships the kernel (`LOOP.md`), the authoring rule, the ready-to-build linter contract,
+the safe batch-execution canon, the scaffolds, the worked trace, and the interview +
+construct/run/reopen/resume-parked prompts. The remaining expository canon docs, prompts
+(checkpoint review, failure classification), durable-handoff templates, migrations, agent
+adapters, and the actual linter binary are forthcoming — each will reference `LOOP.md`
+rather than re-declare it.

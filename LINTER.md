@@ -1,10 +1,10 @@
 # LINTER.md
 
-> **Status: deferred to v1.1. Contract only — no linter ships in v1.**
-> v1 of this repo is `LOOP.md` plus the canon docs. This file specifies what the
-> reference linter *will* do, concretely enough to build later without re-deriving
-> the loop format. The v1 formats in `LOOP.md` are designed to be checkable by exactly
-> this contract.
+> **Status: ready to build. Contract only — no linter binary ships in this repo yet.**
+> v1 of this repo is `LOOP.md` plus the canon docs. This file is the implementation
+> contract for the reference linter: build it from this spec without re-deriving the
+> loop format. The formats in `LOOP.md` are designed to be checkable by exactly this
+> contract.
 
 ## Purpose
 
@@ -23,6 +23,23 @@ It is a *checker*, never an *executor* (see "Hard non-goal" below).
   No runtime engine, no network, no project-specific dependencies.
 - **Optional.** A loop runs correctly without the linter. It is conformance assurance
   and progress reporting, not a required step in the iteration.
+
+## Build target
+
+The first linter should be the smallest useful checker:
+
+```text
+loop-lint [--json] <loop.json> <loop.state.jsonl>
+```
+
+- Default output is human-readable, like the example below.
+- `--json` emits the same result as structured data for scripts and batch coordinators.
+- Exit `0` when scaffold and state are conformant.
+- Exit `1` when either file is readable but not conformant to this contract.
+- Exit `2` for invocation or file-access failures.
+
+The linter remains a checker only. It must not repair files, execute stages, call an agent,
+or decide whether a domain-specific artifact is correct.
 
 ## Inputs
 
@@ -89,15 +106,13 @@ This is a read of the ledger; it does not advance anything.
 ```text
 $ loop-lint loop.json loop.state.jsonl
 scaffold: OK (3 stages, terminal: verify)
-state:    OK (5 items)
+state:    ERROR (5 items)
 position: 2 in-progress, 1 blocked, 0 needs-human, 2 done  → not idle
-warnings: item-004 lastError.code "retry" not in failure taxonomy
+errors:   item-004 lastError.code "retry" not in failure taxonomy
 ```
 
-Exact CLI shape, exit codes, and host language are intentionally unspecified here —
-they are settled when the linter is built (see the deferred Outstanding Questions in the
-origin requirements). What is fixed now is *what it reads* and *what it asserts*, both
-anchored to `LOOP.md`.
+Host language is intentionally unspecified. The fixed parts are the inputs, the checks,
+the minimal CLI, and the exit-code contract above, all anchored to `LOOP.md`.
 
 ## Hard non-goal
 

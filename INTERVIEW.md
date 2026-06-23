@@ -103,7 +103,7 @@ entry stage:
 
 1. **A scaffold** — a `loop.json` whose `stages` are the composed pipeline, in the
    shape of [`LOOP.md` §2](LOOP.md#2-scaffold-shape). It must conform to
-   [`LOOP.md`](LOOP.md); [`LINTER.md`](LINTER.md) describes the future machine-checkable
+   [`LOOP.md`](LOOP.md); [`LINTER.md`](LINTER.md) describes the machine-checkable
    contract for that conformance. Where a stage has dedicated rule or runbook docs (e.g.
    the rules a `verify` checks against, or a `checkpoint`'s review rules), record them in
    that stage's optional `instructions` field (`LOOP.md` §2) — a path or array of paths.

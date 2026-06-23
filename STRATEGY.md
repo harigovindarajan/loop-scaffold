@@ -77,11 +77,29 @@ job instead of accumulating context across hundreds of iterations. Largely unbui
 _Why it serves the approach:_ The autonomy bet fails without it — it's the currently
 missing piece the long horizon demands.
 
+### Reference linter
+
+The lightweight checker that validates `loop.json` and `loop.state.jsonl` without executing
+stages. Its contract is now ready to build in `LINTER.md`; it is the cheap guardrail for
+long unattended runs and the prerequisite for safe batch merge.
+
+_Why it serves the approach:_ It turns ledger-state autonomy from prose discipline into a
+repeatable conformance check while keeping the product docs-first rather than engine-first.
+
+### Multi-agent batch execution
+
+Parallel throughput by partitioning established work into independent loop shards, each run
+by one worker agent, then merging the resulting ledgers. The first design avoids shared-file
+concurrency entirely: no two agents write the same `loop.state.jsonl`.
+
+_Why it serves the approach:_ Once confidence is earned, the same durable state model can
+scale from one item at a time to many independent items at once without weakening the kernel.
+
 ## Not working on
 
 - **Cross-agent portability (Codex, OpenCode).** Real goal, later bet — Claude Code is
   the first and only target until ledger-state autonomy is proven.
-- **Multi-agent batch execution.** Deliberately deferred to a post-v1 track; tests run
-  one at a time through the kernel until an established loop earns batch fan-out.
+- **Shared-ledger concurrent writes.** Batch execution uses independent shards first; direct
+  concurrent edits to one `loop.state.jsonl` wait for a real lock or runtime discipline.
 - **A mandatory runtime engine.** The product stays docs-and-protocol, not an installed
   engine.

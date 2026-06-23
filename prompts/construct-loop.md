@@ -41,7 +41,7 @@ Check each before emitting. These are pointers, not definitions:
   stage's optional `instructions` field (a path or array of paths). Optional; see
   [`LOOP.md` §2](../LOOP.md#2-scaffold-shape).
 - **Conformant output** — the emitted `loop.json` and ledger must conform to
-  [`LOOP.md`](../LOOP.md); [`LINTER.md`](../LINTER.md) describes the future
+  [`LOOP.md`](../LOOP.md); [`LINTER.md`](../LINTER.md) describes the
   machine-checkable contract for that conformance.
 - **Reference, don't restate** — per [`AUTHORING.md`](../AUTHORING.md), point at
   `LOOP.md` for any format detail; do not re-declare the row or stage shape.
