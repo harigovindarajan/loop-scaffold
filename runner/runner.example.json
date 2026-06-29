@@ -1,0 +1,7 @@
+{
+  "promptTemplate": "loop-scaffold/runner/iteration-prompt.md",
+  "maxIters": 60,
+  "command": "claude -p \"$(cat {PROMPT_FILE})\" --model sonnet --dangerously-skip-permissions",
+  "_note": "Copy to <loop-dir>/runner.json. Point .promptTemplate at YOUR filled-in copy of iteration-prompt.example.md. {PROMPT_FILE} is substituted by run-loop.sh with the rendered per-iteration prompt. Both reference commands run fully autonomous (no permission prompts) so each fresh session can write files, dispatch subagents, and run its verify step unattended. Swap runtimes by editing .command only; change the model with --model (defaults: sonnet for claude, openai/gpt5.4 for opencode).",
+  "_alt_command_opencode": "opencode run --model openai/gpt5.4 --dangerously-skip-permissions \"$(cat {PROMPT_FILE})\""
+}

@@ -2,3 +2,6 @@
 # Everything directly under docs/ is ignored EXCEPT the compounding knowledge store.
 /docs/*
 !/docs/solutions/
+
+# Runtime log emitted by the optional runner — not source.
+/runner/run-loop.log
