@@ -31,6 +31,7 @@ interview and the acceptance gate — is the most common way the loop is misused
 | [`BATCH-EXECUTION.md`](BATCH-EXECUTION.md) | Canon for safe multi-agent batch execution via independent loop shards. |
 | [`scaffolds/`](scaffolds/) | Copy-pasteable starter pipelines and an example ledger. |
 | [`prompts/`](prompts/) | Runnable prompts: construct a loop, run one iteration, reopen a checkpoint-rejected item, resume a parked item. |
+| [`runner/`](runner/) | **Optional** reference driver: run a loop in fresh sessions, one per iteration. Not required — the protocol is docs. |
 
 ## Quickstart
 
@@ -56,8 +57,8 @@ ledger.
 ## Status
 
 v1 ships the kernel (`LOOP.md`), the authoring rule, the ready-to-build linter contract,
-the safe batch-execution canon, the scaffolds, the worked trace, and the interview +
-construct/run/reopen/resume-parked prompts. The remaining expository canon docs, prompts
+the safe batch-execution canon, the scaffolds, the worked trace, the interview +
+construct/run/reopen/resume-parked prompts, and the optional fresh-session runner. The remaining expository canon docs, prompts
 (checkpoint review, failure classification), durable-handoff templates, migrations, agent
 adapters, and the actual linter binary are forthcoming — each will reference `LOOP.md`
 rather than re-declare it.
