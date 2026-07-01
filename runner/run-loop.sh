@@ -23,6 +23,7 @@ cd "${REPO_ROOT}"
 
 LOG_FILE="${SCRIPT_DIR}/run-loop.log"
 STALL_LIMIT=2
+CRASH_LIMIT=3
 
 # --- arg parsing -----------------------------------------------------------------------
 LOOP_DIR=""
@@ -104,6 +105,7 @@ log "START loop-dir=${LOOP_DIR} config=${CONFIG} max-iters=${MAX_ITERS} dry-run=
 
 iter=0
 stalls=0
+crashes=0
 
 while (( iter < MAX_ITERS )); do
 
@@ -141,8 +143,10 @@ while (( iter < MAX_ITERS )); do
   fi
 
   # ---- spawn fresh context (this new process IS the fresh session) ----
-  if ! bash -c "${cmd}"; then
-    log "WARN iteration command exited non-zero (target=${tid}); checking ledger anyway"
+  rc=0
+  bash -c "${cmd}" || rc=$?
+  if (( rc != 0 )); then
+    log "WARN iteration command exited non-zero (rc=${rc}, target=${tid}); checking ledger anyway"
   fi
 
   # ---- post-flight ----
@@ -150,15 +154,30 @@ while (( iter < MAX_ITERS )); do
   IFS=$'\t' read -r astatus astage aupdated <<<"${after}"
 
   if [[ "${aupdated}" == "${tupdated}" && "${astatus}" == "${tstatus}" && "${astage}" == "${tstage}" ]]; then
-    stalls=$(( stalls + 1 ))
-    log "STALL ${stalls}/${STALL_LIMIT} no transition on ${tid} (stage=${astage} status=${astatus})"
-    if (( stalls >= STALL_LIMIT )); then
-      log "HALT no progress after ${STALL_LIMIT} consecutive stalls on ${tid}"
-      echo "run-loop: halted — ${tid} is wedged at stage ${astage}; inspect manually." >&2
-      exit 1
+    # Row unchanged. Distinguish a crashed session (non-zero exit, no write) from a
+    # clean session that ran and legitimately produced no transition. A crash gets
+    # its own bounded budget, so a flaky stage that crashes-then-succeeds is not
+    # mistaken for a wedged row; a clean no-op still counts toward the stall limit.
+    if (( rc != 0 )); then
+      crashes=$(( crashes + 1 ))
+      log "CRASH ${crashes}/${CRASH_LIMIT} session exited rc=${rc} with no transition on ${tid} (stage=${astage} status=${astatus})"
+      if (( crashes >= CRASH_LIMIT )); then
+        log "HALT ${tid} crashed ${CRASH_LIMIT} times without progress at stage ${astage}"
+        echo "run-loop: halted — ${tid} keeps crashing at stage ${astage}; inspect manually." >&2
+        exit 1
+      fi
+    else
+      stalls=$(( stalls + 1 ))
+      log "STALL ${stalls}/${STALL_LIMIT} no transition on ${tid} (stage=${astage} status=${astatus})"
+      if (( stalls >= STALL_LIMIT )); then
+        log "HALT no progress after ${STALL_LIMIT} consecutive stalls on ${tid}"
+        echo "run-loop: halted — ${tid} is wedged at stage ${astage}; inspect manually." >&2
+        exit 1
+      fi
     fi
   else
     stalls=0
+    crashes=0
     log "OK ${tid} -> status=${astatus} stage=${astage}"
   fi
 done

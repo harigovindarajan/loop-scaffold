@@ -71,7 +71,12 @@ re-scans to confirm progress.
 |---------|------|------|
 | **Halt** (parked) | 1 | Any row is `blocked` or `needs-human`. Resolve it ([`prompts/resume-parked-item.md`](../prompts/resume-parked-item.md)) and re-run. |
 | **Idle** | 0 | No `pending`/`in-progress` rows left; the loop is complete. |
-| **Halt** (stall) | 1 | A spawned session left the target row unchanged twice in a row; the row is wedged. Inspect manually. |
+| **Halt** (stall) | 1 | A spawned session **exited cleanly** but left the target row unchanged twice in a row (`STALL_LIMIT`); the row is genuinely wedged. Inspect manually. |
+| **Halt** (crash) | 1 | A spawned session **exited non-zero** and left the row unchanged three times in a row (`CRASH_LIMIT`); the session keeps crashing before it can persist a transition. Inspect manually. |
 | **Cap** | 0 | `--max-iters` reached; resumable — just re-run. |
 
-Progress is appended to `run-loop.log` (one line per event; gitignored).
+A crashed session (non-zero exit, no transition) is tracked separately from a clean
+no-op so a flaky stage that crashes-then-succeeds is not mistaken for a wedged row:
+a crash counts toward `CRASH_LIMIT`, a clean no-op counts toward `STALL_LIMIT`, and any
+real transition resets both. Progress is appended to `run-loop.log` (one line per event,
+including `CRASH`; gitignored).
