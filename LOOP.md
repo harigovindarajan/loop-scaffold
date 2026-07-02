@@ -69,7 +69,7 @@ The scaffold may also carry an optional top-level **`metadata`** object — free
 not interpreted by the kernel, exactly like a work item's `metadata` (§3). It is the home
 for loop-level settings a run needs but the kernel ignores: the verification note (what
 "pass" means for the terminal `verify`), the failure-intent guidance, reopen targets, and
-the retry budget. Canon defines those keys ([`INTERVIEW.md` §3](INTERVIEW.md#3-output-contract),
+the retry budgets (`maxAttempts`, `maxReopens`). Canon defines those keys ([`INTERVIEW.md` §3](INTERVIEW.md#3-output-contract),
 [`prompts/reopen-item.md`](prompts/reopen-item.md)); the kernel only reserves the channel.
 Omit it when the loop needs none.
 
@@ -139,11 +139,13 @@ here. A scaffold containing `checkpoint` stages is therefore fully runnable only
 with that reopen canon; the kernel on its own runs `agent`/`verify` pipelines end to end.
 
 **Retries are bounded.** A stage that keeps resolving to `retryable-defect` is not
-retried forever: past the loop's retry budget it escalates to `human-exception`
+retried forever: at the loop's retry budget it escalates to `human-exception`
 (status → `needs-human`) so a wedged item surfaces instead of starving the loop. The
-budget is a loop-level setting the scaffold's `metadata` carries (§2) — the failure-intent
-guidance governs the same-stage case, and a concrete reopen cap that canon applies to
-checkpoint reopen ping-pong (`prompts/reopen-item.md`).
+budget is a loop-level setting the scaffold's `metadata` carries (§2), with a safe default
+when absent so a starter scaffold with no `metadata` is still bounded: `metadata.maxAttempts`
+caps same-stage re-attempts and `metadata.maxReopens` caps checkpoint reopen ping-pong
+(`prompts/reopen-item.md`) — canon defaults both to 3, and the failure-intent guidance
+(§2) may raise or lower them.
 
 `retryable-defect` always re-attempts the **same** stage — the kernel never reopens an
 item to an earlier stage. When a defect surfaced at one stage is rooted in an earlier

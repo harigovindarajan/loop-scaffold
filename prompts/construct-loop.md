@@ -37,9 +37,11 @@ Check each before emitting. These are pointers, not definitions:
 - **Loop-level settings in scaffold metadata** — record the run-time answers that shape
   behavior but no stage in the scaffold's optional top-level `metadata`
   ([`LOOP.md` §2](../LOOP.md#2-scaffold-shape)): `metadata.verification` (Q5, what "pass"
-  means), `metadata.failureIntent` (Q7, retry-vs-block-vs-human, including the retry
-  budget), and `metadata.reopenTargets` if the user names explicit reopen targets. This is
-  the durable home that carries them into fresh sessions.
+  means), `metadata.failureIntent` (Q7, retry-vs-block-vs-human) plus the concrete caps it
+  implies — `metadata.maxAttempts` (same-stage retries) and `metadata.maxReopens`
+  (checkpoint reopens), each defaulting to 3 when omitted — and `metadata.reopenTargets` if
+  the user names explicit reopen targets. This is the durable home that carries them into
+  fresh sessions.
 - **Handoff in metadata** — record the Q6 answer in each row's free-form `metadata`
   (e.g. `metadata.handoff`). Never add a top-level row field; never reference
   `handoff-templates/` as existing.

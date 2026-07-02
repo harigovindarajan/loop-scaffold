@@ -110,9 +110,10 @@ entry stage:
    that stage's optional `instructions` field (`LOOP.md` §2) — a path or array of paths.
    Record the loop-level answers that shape *run-time behavior* — not stages — in the
    scaffold's optional top-level `metadata` (`LOOP.md` §2): the verification note
-   (`metadata.verification`, Q5), the failure-intent guidance and its retry budget
-   (`metadata.failureIntent`, Q7), and any reopen targets (`metadata.reopenTargets`). This
-   is what carries them into fresh sessions, which hold nothing but the files on disk.
+   (`metadata.verification`, Q5), the failure-intent guidance (`metadata.failureIntent`, Q7)
+   and its concrete retry caps (`metadata.maxAttempts` / `metadata.maxReopens`, each
+   defaulting to 3), and any reopen targets (`metadata.reopenTargets`). This is what carries
+   them into fresh sessions, which hold nothing but the files on disk.
 2. **A verification plan** — what the terminal `verify` stage checks (the Q5 answer),
    recorded in the scaffold's `metadata.verification` so the run knows what "pass" means.
 3. **Present the scaffold for adjustment.** Show the composed loop and let the user add,

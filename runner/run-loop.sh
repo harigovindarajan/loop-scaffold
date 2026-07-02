@@ -111,12 +111,14 @@ crashes=0
 while (( iter < MAX_ITERS )); do
 
   # ---- pre-flight ----
-  # Validate the ledger parses BEFORE trusting the read-only queries below: they slurp the
-  # file, and a malformed line would make jq emit nothing, which otherwise reads as "no
-  # actionable rows → idle" and exits 0 — a corrupt state file must never look complete.
-  if ! jq . "${LEDGER}" >/dev/null 2>&1; then
-    log "HALT ledger is not valid JSON/JSONL: ${LEDGER}"
-    echo "run-loop: halted — ${LEDGER} is not valid JSONL; fix it, then re-run." >&2
+  # Validate the ledger is well-formed JSONL — a stream of JSON *objects* — BEFORE trusting
+  # the read-only queries below: they slurp the file, so a malformed line, a bare scalar,
+  # or the whole ledger written as a single JSON array all make the queries yield nothing,
+  # which otherwise reads as "no actionable rows → idle" and exits 0. A corrupt state file
+  # must never look complete. (An empty ledger slurps to [], passes here, and is idle.)
+  if ! jq -e -s 'all(.[]; type == "object")' "${LEDGER}" >/dev/null 2>&1; then
+    log "HALT ledger is not valid JSONL (must be one JSON object per line): ${LEDGER}"
+    echo "run-loop: halted — ${LEDGER} is not valid JSONL (a JSON array or non-object line won't do); fix it, then re-run." >&2
     exit 1
   fi
 

@@ -12,7 +12,10 @@ implement (agent) -> review (checkpoint) -> verify (verify)
 
 `scaffolds/loop.state.example.jsonl` shows rows at rest. This file shows one row moving:
 each step has a before line, the action that happened, and the after line that would be
-persisted.
+persisted. The rows are faithful in their **kernel fields**; some optional, free-form
+`metadata` counters (e.g. `reopenCount`, which `prompts/reopen-item.md` increments on
+reopen) are elided for readability, so read the JSON as exact in its kernel fields and
+abbreviated in its metadata.
 
 ---
 

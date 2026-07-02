@@ -29,10 +29,10 @@ Do exactly one iteration, in this order — all per
 - **Classify** the outcome as exactly one failure-taxonomy code —
   [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy).
 - **Respect the retry budget** — a same-stage `retryable-defect` is bounded, not endless.
-  When `attempts` reaches the threshold in the loop's `metadata.failureIntent`, escalate to
-  `human-exception` instead of re-attempting again — the bounded-retry rule in
-  [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy). (Checkpoint reopen has its own concrete cap
-  in [`reopen-item`](reopen-item.md).)
+  When `attempts` reaches the loop's cap — `metadata.maxAttempts` on the scaffold if set,
+  otherwise a default of **3** — escalate to `human-exception` instead of re-attempting
+  again, the bounded-retry rule in [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy). (Checkpoint
+  reopen has the parallel `metadata.maxReopens` cap in [`reopen-item`](reopen-item.md).)
 - **Checkpoint reject special case** — if a `checkpoint` rejects and the outcome is the
   taxonomy's `retryable-defect`, do not persist the same-stage retry effect here. Use
   [`reopen-item`](reopen-item.md) instead; it performs this iteration's single write and
