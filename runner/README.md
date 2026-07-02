@@ -14,6 +14,12 @@ in memory; it only orchestrates and gates. It adds **no loop rules**
 [`prompts/run-one-iteration.md`](../prompts/run-one-iteration.md)
 ([`LOOP.md` §6](../LOOP.md)).
 
+In the terms of [`LOOP.md` §7](../LOOP.md#7-adapter-stub), `run-loop.sh` plus your
+filled-in iteration prompt **is a fresh-session adapter**: it discharges the adapter
+stub's six steps by spawning one session per iteration, adding invocation and gating
+detail only. A same-session adapter would instead follow those six steps inline in one
+long-lived session.
+
 ## Vendoring assumption
 
 The driver resolves the repo root as the **parent of `loop-scaffold/`** and runs from
@@ -45,6 +51,10 @@ there, so config paths are **project-relative**. This assumes the scaffold is ve
 
    `{PROMPT_FILE}` is substituted with the rendered per-iteration prompt. The defaults are
    `sonnet` (claude) and `openai/gpt5.4` (opencode); change `--model` to pick another.
+   `haltOnParked` (default `true`) stops the whole run on any `blocked` / `needs-human`
+   row; set it `false` to skip parked rows and keep advancing the actionable ones instead.
+   The reopen/retry budget is a **loop** setting, not a runner one — set
+   `metadata.maxReopens` in the scaffold ([`prompts/reopen-item.md`](../prompts/reopen-item.md)).
 4. **Run it.**
 
 ```bash
@@ -69,7 +79,8 @@ re-scans to confirm progress.
 
 | Outcome | Exit | When |
 |---------|------|------|
-| **Halt** (parked) | 1 | Any row is `blocked` or `needs-human`. Resolve it ([`prompts/resume-parked-item.md`](../prompts/resume-parked-item.md)) and re-run. |
+| **Halt** (bad ledger) | 1 | `loop.state.jsonl` does not parse as JSONL. Pre-flight catches it before any query, so a corrupt file can't read as "idle." Fix it and re-run. |
+| **Halt** (parked) | 1 | A row is `blocked` or `needs-human` **and** `haltOnParked` is `true` (default). Resolve it ([`prompts/resume-parked-item.md`](../prompts/resume-parked-item.md)) and re-run, or set `haltOnParked: false` to skip parked rows. This is a runner policy — the kernel itself skips parked rows and keeps going ([`LOOP.md` §6](../LOOP.md)). |
 | **Idle** | 0 | No `pending`/`in-progress` rows left; the loop is complete. |
 | **Halt** (stall) | 1 | A spawned session **exited cleanly** but left the target row unchanged twice in a row (`STALL_LIMIT`); the row is genuinely wedged. Inspect manually. |
 | **Halt** (crash) | 1 | A spawned session **exited non-zero** and left the row unchanged three times in a row (`CRASH_LIMIT`); the session keeps crashing before it can persist a transition. Inspect manually. |

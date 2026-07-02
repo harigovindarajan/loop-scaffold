@@ -60,9 +60,10 @@ CONFIG="${CONFIG:-${LOOP_DIR%/}/runner.json}"
 command -v jq >/dev/null || die "jq is required"
 
 # --- read config -----------------------------------------------------------------------
-CMD_TEMPLATE="$(jq -r '.command'        "${CONFIG}")"
-PROMPT_TMPL="$( jq -r '.promptTemplate' "${CONFIG}")"
-CFG_MAX="$(     jq -r '.maxIters // 60' "${CONFIG}")"
+CMD_TEMPLATE="$(jq -r '.command'          "${CONFIG}")"
+PROMPT_TMPL="$( jq -r '.promptTemplate'   "${CONFIG}")"
+CFG_MAX="$(     jq -r '.maxIters // 60'   "${CONFIG}")"
+HALT_PARKED="$( jq -r '.haltOnParked // true' "${CONFIG}")"
 MAX_ITERS="${MAX_ITERS:-${CFG_MAX}}"
 
 [[ "${CMD_TEMPLATE}" != "null" && -n "${CMD_TEMPLATE}" ]] || die "config .command is empty"
@@ -110,12 +111,29 @@ crashes=0
 while (( iter < MAX_ITERS )); do
 
   # ---- pre-flight ----
-  parked="$(parked_row || true)"
-  if [[ -n "${parked}" ]]; then
-    IFS=$'\t' read -r pid pstatus perr <<<"${parked}"
-    log "HALT parked row ${pid} status=${pstatus} lastError=${perr}"
-    echo "run-loop: halted — resolve ${pid} (${pstatus}), then re-run." >&2
+  # Validate the ledger is well-formed JSONL — a stream of JSON *objects* — BEFORE trusting
+  # the read-only queries below: they slurp the file, so a malformed line, a bare scalar,
+  # or the whole ledger written as a single JSON array all make the queries yield nothing,
+  # which otherwise reads as "no actionable rows → idle" and exits 0. A corrupt state file
+  # must never look complete. (An empty ledger slurps to [], passes here, and is idle.)
+  if ! jq -e -s 'all(.[]; type == "object")' "${LEDGER}" >/dev/null 2>&1; then
+    log "HALT ledger is not valid JSONL (must be one JSON object per line): ${LEDGER}"
+    echo "run-loop: halted — ${LEDGER} is not valid JSONL (a JSON array or non-object line won't do); fix it, then re-run." >&2
     exit 1
+  fi
+
+  # Halt on any parked row (blocked / needs-human) so a run needing a human surfaces
+  # immediately. This is a runner policy, not a kernel rule — the kernel skips parked rows
+  # and keeps going (LOOP.md §6). Set "haltOnParked": false in runner.json to skip parked
+  # rows and keep advancing the actionable ones instead.
+  if [[ "${HALT_PARKED}" == "true" ]]; then
+    parked="$(parked_row || true)"
+    if [[ -n "${parked}" ]]; then
+      IFS=$'\t' read -r pid pstatus perr <<<"${parked}"
+      log "HALT parked row ${pid} status=${pstatus} lastError=${perr}"
+      echo "run-loop: halted — resolve ${pid} (${pstatus}), then re-run." >&2
+      exit 1
+    fi
   fi
 
   next="$(actionable_row || true)"

@@ -54,6 +54,10 @@ shapes; it validates against `LOOP.md`:
 - **Scaffold** — `loop.json` (see `LOOP.md` §2, "Scaffold shape").
 - **State** — `loop.state.jsonl` (see `LOOP.md` §3, "Work-item row shape").
 
+The optional run journal (`loop.journal.jsonl`, [`JOURNAL.md`](JOURNAL.md)) is **not** part
+of this contract: a loop with no journal is fully conformant. A future strict check could
+validate journal↔ledger consistency (`JOURNAL.md` §7); it is out of scope here.
+
 All field names, enums, and the stage/row shapes referenced below are defined in
 `LOOP.md`. This file points at them rather than copying them.
 
@@ -61,16 +65,28 @@ All field names, enums, and the stage/row shapes referenced below are defined in
 
 The linter asserts, against the formats in `LOOP.md`:
 
+> **The literals below transcribe the closed sets and field lists defined in `LOOP.md`
+> §2–§4.** This is the one place the kernel's vocabulary is intentionally duplicated — a
+> checker must name what it checks. When the kernel's row shape, stage kinds, `status`
+> set, or failure taxonomy changes, re-verify this section first: it is the repo's primary
+> drift surface. Rules tagged *(derived)* are not stated verbatim in the kernel but follow
+> from it.
+
 **Scaffold (`LOOP.md` §2)**
 - The scaffold parses as JSON and has a non-empty `stages` list.
 - Every stage has `name`, `kind`, and `next`.
 - If a stage carries the optional `instructions` field, it is a string or an array of
   strings (`LOOP.md` §2). Stages without it are still well-formed.
+- If the scaffold carries an optional top-level `metadata`, it is an object (`LOOP.md`
+  §2); its contents are free-form and not further validated.
 - Every `name` is unique within the scaffold.
 - Every `kind` is in the closed set `agent | checkpoint | verify`.
 - Every `next` is either `null` or the `name` of another stage (no dangling targets).
-- Exactly the terminal stage(s) have `next: null`; the stage graph reaches a terminal
-  from the entry stage (no cycles that can never terminate).
+- Exactly one stage is terminal (`next: null`); every non-terminal `next` names a stage
+  that appears **later** in the list, so the pipeline is linear and acyclic and reaches
+  the terminal from the entry stage (`LOOP.md` §2 — the kernel loop is single-agent
+  linear; a row moving *backward* is the runtime `stage` value a reopen sets, not a
+  scaffold `next` edge).
 
 **State (`LOOP.md` §3, §4)**
 - Each line parses as a JSON object (valid JSONL).
@@ -81,10 +97,14 @@ The linter asserts, against the formats in `LOOP.md`:
 - Every `stage` names a stage that exists in the scaffold, or is `null` for a `done` item.
 - `lastError` is `null` or `{ code, note }` with `code` in the failure taxonomy
   (`LOOP.md` §4).
-- Cross-field consistency: `needsHuman: true` iff `status` is `needs-human`;
+- Cross-field consistency: `needsHuman: true` iff `status` is `needs-human` *(derived)*;
   `attempts` is a non-negative integer; `updatedAt` is a valid ISO-8601 timestamp.
-- A `done` row has `stage: null` and `attempts: 0` — the kernel resets `attempts` to `0`
-  on every `pass`, including the terminal one (`LOOP.md` §6, "Persist the transition").
+- Field order in each row matches the canonical order in `LOOP.md` §3 — the kernel
+  declares it fixed and mechanically checkable, and JSONL is line-based text, so the
+  linter reads it directly.
+- A `done` row has `stage: null`, `attempts: 0`, and `lastError: null` *(derived)* — the
+  kernel resets `attempts` to `0` and clears `lastError` on every `pass`, including the
+  terminal one (`LOOP.md` §6, "Persist the transition").
 
 **Invariant (`LOOP.md` §5)**
 - The invariant is structurally representable: each state line is a single row at a

@@ -17,17 +17,14 @@ Follow the kernel — do not invent or restate loop rules:
   `{{LOOP_DIR}}/loop.state.jsonl` (ledger). Nothing outside these two files carries loop
   state — reconstruct everything you need from them plus the stage's `instructions` docs.
 
-Then do the single iteration, per `prompts/run-one-iteration.md`:
-
-- **Pick** the first actionable row (`status` `pending` or `in-progress`); skip the rest.
-  If none, the loop is idle — stop without writing.
-- **Run** that row's current stage by `kind` (`agent` / `checkpoint` / `verify`), using the
-  stage's `instructions` and the work-specific guidance you fill in below.
-- **Checkpoint rejection:** if a `checkpoint` rejects with a `retryable-defect`, do NOT
-  persist a same-stage retry here — use `loop-scaffold/prompts/reopen-item.md` to route the
-  item back to the producing stage with the reviewer feedback attached.
-- **Persist exactly one rewritten ledger line** for the row you advanced — the whole line,
-  per [`LOOP.md` §3](../LOOP.md) shape and §6 persist rules.
+Then do the single iteration exactly as
+[`prompts/run-one-iteration.md`](../prompts/run-one-iteration.md) specifies — pick one
+actionable row, run its stage using the stage's `instructions` and your fill-in below,
+classify, and persist exactly one rewritten ledger line. Follow that prompt; do not
+restate its rules here. The one reminder worth repeating for a fresh session: on a
+`checkpoint` rejection, do **not** persist a same-stage retry — use
+[`loop-scaffold/prompts/reopen-item.md`](../prompts/reopen-item.md) to route the item back
+to its producing stage with the reviewer feedback attached.
 
 <!-- ─────────────────────────────────────────────────────────────────────────────────
 USER: fill in for your work type. The kernel does not prescribe these — you do.
