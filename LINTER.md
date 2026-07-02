@@ -54,6 +54,10 @@ shapes; it validates against `LOOP.md`:
 - **Scaffold** — `loop.json` (see `LOOP.md` §2, "Scaffold shape").
 - **State** — `loop.state.jsonl` (see `LOOP.md` §3, "Work-item row shape").
 
+The optional run journal (`loop.journal.jsonl`, [`JOURNAL.md`](JOURNAL.md)) is **not** part
+of this contract: a loop with no journal is fully conformant. A future strict check could
+validate journal↔ledger consistency (`JOURNAL.md` §7); it is out of scope here.
+
 All field names, enums, and the stage/row shapes referenced below are defined in
 `LOOP.md`. This file points at them rather than copying them.
 

@@ -306,9 +306,9 @@ docs:
 - Alternate item-ordering policies — the kernel selects in file order (§6); any other
   ordering (priority, dependency, cost) is canon.
 - Run history and audit journals — the state ledger holds *current state* only. A durable
-  record of *what happened* across a run (for metrics, replay, or audit) is kept in canon,
-  via version-control history of the ledger or an optional append-only journal — never by
-  making the state file itself append-only.
+  record of *what happened* across a run (for metrics, replay, or audit) is the optional
+  append-only journal defined in canon ([`JOURNAL.md`](JOURNAL.md)) — never made by turning
+  the state file itself append-only.
 
 If you need any of the above, follow the canon doc that references this kernel. Do not
 infer rules for them from this file.

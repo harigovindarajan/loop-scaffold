@@ -33,17 +33,17 @@ turning a week of babysitting an agent into an afternoon of setup plus spot-chec
 ## Key metrics
 
 - **Autonomous-run ratio** - iterations completed with zero human touch ÷ total
-  iterations; should climb as confidence is tuned out. Source: **run history** — the
-  ledger's per-iteration git history or an append-only journal, not the live
-  `loop.state.jsonl`, which is a mutable table holding current state only ([`LOOP.md`
-  §3, §8](LOOP.md)).
+  iterations; should climb as confidence is tuned out. Source: the append-only run
+  journal ([`JOURNAL.md`](JOURNAL.md)), not the live `loop.state.jsonl`, which is a
+  mutable table holding current state only.
 - **Human-review touch count** - absolute number of human interventions (review1 +
   checkpoint rejections + `needs-human`); the number tuned toward near-zero. Source:
-  run history (git history / journal); the live ledger does not retain past transitions,
-  so per-item counters like `attempts`/`reopenCount` reflect only the current stage.
+  the run journal ([`JOURNAL.md`](JOURNAL.md)); the live ledger does not retain past
+  transitions, so per-item counters like `attempts`/`reopenCount` reflect only the
+  current stage.
 - **Clean-resume rate** - interruptions that resume correctly with no lost or redone
   work ÷ total interruptions; the direct test of the core bet. Source: replay of the run
-  history (git history / journal), tally to be kept.
+  journal ([`JOURNAL.md`](JOURNAL.md)) against the ledger position.
 - **Orchestrator context flatness** - per-iteration context size stays ~constant across
   hundreds of iterations. Source: run-time context instrumentation (not in the ledger
   today).
