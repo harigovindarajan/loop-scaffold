@@ -9,13 +9,14 @@ row shape, the stage contract, the one-transition-per-iteration invariant, and t
 failure taxonomy. Every other doc in this repo references `LOOP.md` for those things and
 adds only its own expository or non-linear material on top.
 
-No canon doc may normatively re-declare the row shape, the stage contract, or the
-invariant. If a doc needs them, it **links** to the relevant `LOOP.md` section.
+No canon doc may normatively re-declare the row shape, the stage contract, the failure
+taxonomy, or the invariant. If a doc needs them, it **links** to the relevant `LOOP.md`
+section.
 
 ### The review test
 
-> If a reviewer finds the row shape (or stage contract, or invariant) normatively
-> defined in two places, this rule has failed.
+> If a reviewer finds the row shape (or stage contract, or failure taxonomy, or
+> invariant) normatively defined in two places, this rule has failed.
 
 The kernel must appear in exactly one place. A second normative declaration anywhere in
 the repo is a defect, even if the two copies currently agree — because they will drift.

@@ -69,7 +69,9 @@ shape:
 
 Shard status is `ready`, `running`, `stopped`, or `merged`. `replace-by-id` means the merge
 replaces the source row with the shard row carrying the same work-item id. A shard with a
-malformed ledger does not merge.
+malformed ledger does not merge. Work-item `id`s must be unique across **all** shards, not
+just within one: the merge keys on `id`, so a cross-shard collision would overwrite the
+wrong row.
 
 Each worker directory is a valid standalone loop: if a worker stops, another agent can resume
 that shard by reading only that shard's `loop.json` and `loop.state.jsonl`, plus any stage
@@ -87,7 +89,9 @@ The coordinator performs setup and merge work; it does not execute stages.
 5. Run the linter contract in [`LINTER.md`](LINTER.md) against every shard before dispatch.
 6. Assign one worker agent to each shard directory.
 7. Freeze the source ledger, if one exists, until the batch is merged. Do not run the source
-   loop while shards are active.
+   loop while shards are active. This freeze is a convention, not a lock — nothing enforces
+   it; running the source loop (or a second coordinator) against the same ledger while
+   shards are active can silently lose progress at merge time.
 8. Update `batch.json` as shards move from `ready` to `running` to `stopped`.
 9. When workers stop, lint each shard again and merge the resulting rows into the source or
    final ledger.

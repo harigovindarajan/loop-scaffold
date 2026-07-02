@@ -1,9 +1,10 @@
 # Portable Agent Loop
 
 The loop protocol for coding agents — as **docs, not a runtime**. Open the repo, read one
-file, and run a single-agent linear loop over your task: establish work items, advance one
-stage at a time, persist each transition, stop and resume cleanly. No engine to install, no
-agent-specific lock-in.
+file, and run a single-agent linear loop: advance one stage at a time, persist each
+transition, stop and resume cleanly. Building a loop for a task — turning it into work
+items — is a separate, gated step (below). No engine to install, no agent-specific
+lock-in.
 
 ## Start here
 

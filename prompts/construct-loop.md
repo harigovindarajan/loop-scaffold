@@ -27,12 +27,19 @@ Check each before emitting. These are pointers, not definitions:
 - **Compose stages** per the recipe in [`INTERVIEW.md` §2](../INTERVIEW.md) — phases →
   `agent`, approval points → `checkpoint`, verification → terminal `verify`. Compose
   fresh; do not copy a `scaffolds/` file as a shortcut (cite them only as examples).
-- **Stage contract & kinds** — every stage has `name`, `kind`, `next`; `kind` is one
-  of `agent | checkpoint | verify`; the terminal stage has `next: null`. See
-  [`LOOP.md` §2](../LOOP.md#2-scaffold-shape).
+- **Stage contract & kinds** — every emitted stage must satisfy the stage contract and
+  the closed set of kinds defined in [`LOOP.md` §2](../LOOP.md#2-scaffold-shape), with the
+  terminal stage's `next` being `null`. Point at §2 for the field and kind definitions; do
+  not re-enumerate them here.
 - **Seed the ledger** — one row per unit of work, at the entry stage, per
   [`LOOP.md` §6, "Seed the work items"](../LOOP.md#6-operating-the-loop). The row shape
   is [`LOOP.md` §3](../LOOP.md#3-work-item-row-shape).
+- **Loop-level settings in scaffold metadata** — record the run-time answers that shape
+  behavior but no stage in the scaffold's optional top-level `metadata`
+  ([`LOOP.md` §2](../LOOP.md#2-scaffold-shape)): `metadata.verification` (Q5, what "pass"
+  means), `metadata.failureIntent` (Q7, retry-vs-block-vs-human, including the retry
+  budget), and `metadata.reopenTargets` if the user names explicit reopen targets. This is
+  the durable home that carries them into fresh sessions.
 - **Handoff in metadata** — record the Q6 answer in each row's free-form `metadata`
   (e.g. `metadata.handoff`). Never add a top-level row field; never reference
   `handoff-templates/` as existing.
@@ -59,8 +66,11 @@ Emit, in this order — **scaffold first, ledger only after the user approves th
 scaffold**, so a late stage change cannot strand rows at the wrong entry stage:
 
 1. **`loop.json`** — the composed scaffold (`LOOP.md` §2 shape), with any per-stage
-   runbook docs in each stage's optional `instructions` field.
-2. **A verification note** — what the terminal `verify` stage checks (the Q5 answer).
+   runbook docs in each stage's optional `instructions` field and the loop-level settings
+   (verification note, failure intent + retry budget, reopen targets) in the scaffold's
+   top-level `metadata`.
+2. **A verification note** — what the terminal `verify` stage checks (the Q5 answer),
+   emitted into `metadata.verification` on the scaffold above.
 3. **Present the composed scaffold to the user for adjustment** — they may add, remove,
    or reorder stages or move checkpoints — **before** the ledger is seeded.
 4. **`loop.state.jsonl`** — *after the user accepts the scaffold* — one seeded row per

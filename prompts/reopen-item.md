@@ -31,15 +31,24 @@ Read both files; nothing outside them carries loop state.
   [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy)). If the reviewer escalated to a
   `human-exception` instead, do not reopen — classify per the taxonomy.
 - **Pick the target (producer) stage.** Default to the **nearest preceding `agent` stage**
-  in `loop.json` — the stage that produced the reviewed artifact. If the loop documents an
-  explicit reopen target for this checkpoint (a convention recorded alongside the loop, not
-  a kernel field), use that instead.
+  in `loop.json` — the stage that produced the reviewed artifact. If the scaffold records an
+  explicit reopen target for this checkpoint in `metadata.reopenTargets`
+  ([`LOOP.md` §2](../LOOP.md#2-scaffold-shape)), use that instead.
+- **Bound the reopen loop.** Reopening forever is the checkpoint-side twin of an unbounded
+  retry, which [`LOOP.md` §4](../LOOP.md#4-failure-taxonomy) forbids. Track the count in
+  `metadata.reopenCount` (absent ⇒ 0). If reopening again *would exceed* the loop's budget —
+  `metadata.maxReopens` on the scaffold if set, otherwise a default of **3** — do **not**
+  reopen: escalate instead to `human-exception` (status → `needs-human`, `needsHuman: true`,
+  `lastError` `{ "code": "human-exception", "note": <the repeated-rejection reason> }`). A
+  runner or author can raise or lower the budget by writing `metadata.maxReopens` in the
+  scaffold; the default applies when it is absent, so a manually run loop is bounded too.
 - **Apply one transition** (the effect, per [`LOOP.md` §6](../LOOP.md#6-operating-the-loop)):
   - `status` stays `in-progress`.
   - `stage` ← the target producer stage.
   - `attempts` ← `0` (a fresh attempt at the producer stage).
   - `lastError` ← `{ "code": "retryable-defect", "note": <reviewer comments> }` — the
     closed-set code is preserved; the note carries the feedback.
+  - `metadata.reopenCount` ← its previous value + 1 (drives the bound above).
   - Optionally also record the feedback in `metadata.reviewFeedback`.
   - `needsHuman` stays `false`; set `updatedAt` to now.
 - **Reference, don't restate** — per [`AUTHORING.md`](../AUTHORING.md), the row fields and
