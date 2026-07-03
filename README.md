@@ -1,67 +1,50 @@
 # Portable Agent Loop
 
-The loop protocol for coding agents — as **docs, not a runtime**. Open the repo, read one
-file, and run a single-agent linear loop: advance one stage at a time, persist each
-transition, stop and resume cleanly. Building a loop for a task — turning it into work
-items — is a separate, gated step (below). No engine to install, no agent-specific
-lock-in.
+The loop protocol for coding agents — as **docs, not a runtime**. Version 2, the
+**artifact-graph kernel**: the plan declares, per stage, the artifact it produces, the
+gate that proves it, and the executor that does it. An item's position is *derived* —
+the first stage whose gate doesn't pass — never written; every gate-pass is a git
+commit, so the run history is the git log. There is no state ledger to keep in sync,
+nothing to drift, nothing to fake.
 
 ## Start here
 
-Read **[`LOOP.md`](LOOP.md)**. It is the whole kernel — the single source of truth for the
-scaffold shape, the work-item row, the one-transition-per-iteration invariant, and the
-failure taxonomy. Reading it alone lets you **run an already-constructed loop**: with a
-`loop.json` and a seeded ledger in hand, you can advance it correctly.
+Read **[`LOOP.md`](LOOP.md)** — the whole kernel, and the single source of truth for
+the plan shape, the position function, the gate–commit invariant, and the failure
+taxonomy. Reading it plus an accepted `loop.json` is everything an agent needs.
 
-**Building a loop for a task comes first, and it is gated — do not seed a ledger straight
-from a task.** Read [`INTERVIEW.md`](INTERVIEW.md) and run
-[`prompts/construct-loop.md`](prompts/construct-loop.md): interview the user, compose
-`loop.json`, present it for acceptance, and seed `loop.state.jsonl` **only after the user
-accepts the scaffold**. Composing, seeding, and executing in a single step — skipping the
-interview and the acceptance gate — is the most common way the loop is misused.
-
-## What's in the repo
-
-| File | Purpose |
-| --- | --- |
-| [`LOOP.md`](LOOP.md) | The normative kernel. Read first; everything else references it. |
-| [`WALKTHROUGH.md`](WALKTHROUGH.md) | A narrated worked trace: how a row moves through every code and stage kind. |
-| [`INTERVIEW.md`](INTERVIEW.md) | The interview an agent runs, and how answers compose into a loop. |
-| [`AUTHORING.md`](AUTHORING.md) | The one authoring rule: reference the kernel, never restate it. |
-| [`LINTER.md`](LINTER.md) | Ready-to-build contract for the reference linter. |
-| [`BATCH-EXECUTION.md`](BATCH-EXECUTION.md) | Canon for safe multi-agent batch execution via independent loop shards. |
-| [`JOURNAL.md`](JOURNAL.md) | **Optional** append-only run history: the format for *what happened*, sibling to the current-state ledger. |
-| [`scaffolds/`](scaffolds/) | Copy-pasteable starter pipelines and an example ledger. |
-| [`prompts/`](prompts/) | Runnable prompts: construct a loop, run one iteration, reopen a checkpoint-rejected item, resume a parked item. |
-| [`runner/`](runner/) | **Optional** reference driver: run a loop in fresh sessions, one per iteration. Not required — the protocol is docs. |
+**Construction is gated:** execution may not begin until `loop.json` is drafted, edited
+by the user, and **committed** — the plan's commit is the acceptance
+([`LOOP.md` §8](LOOP.md#8-operating-the-loop)).
 
 ## Quickstart
 
-**Build a loop for your task (recommended).** Have an agent follow
-[`prompts/construct-loop.md`](prompts/construct-loop.md): it runs the
-[`INTERVIEW.md`](INTERVIEW.md) interview, composes a `loop.json`, presents the scaffold
-for your adjustment, and then seeds the ledger from the accepted scaffold. Then run it
-one step at a time with
-[`prompts/run-one-iteration.md`](prompts/run-one-iteration.md).
-
-**Or start from a shipped starter:**
-
 ```sh
-cp scaffolds/loop.minimal.json loop.json   # 1. pick a pipeline (or loop.checkpoint.json)
-# 2. seed loop.state.jsonl from your task   → LOOP.md §6, "Seed the work items"
-# 3. run one item, one stage, one transition → LOOP.md §6, "Operating the loop"
-# 4. stop or resume anytime — the ledger is the whole state
+git init                      # the kernel requires a git repo
+# 1. draft loop.json with your stages (see LOOP.md §1 for the shape), edit, commit it
+# 2. derive positions, pick, execute, gate, commit — LOOP.md §8
+#    …or let the reconciler mechanize it:
+reconciler/loop status        # where is every item? (also validates the plan)
+reconciler/loop next          # what to do now
+reconciler/loop gate tc-01 probe    # run the gate; commit the proof on pass
+reconciler/loop run           # fresh agent session per pick, unattended
 ```
 
-See [`scaffolds/README.md`](scaffolds/README.md) for choosing a starter and seeding the
-ledger.
+## What's in the repo
 
-## Status
+| Path | Purpose |
+| --- | --- |
+| [`LOOP.md`](LOOP.md) | **v2 kernel.** Read first; everything else references it. |
+| [`reconciler/`](reconciler/) | **Optional** CLI: `status` / `next` / `gate` / `note` / `validate` / `run`. Mechanizes the kernel; adds no rules. |
+| `docs/solutions/` | Compounding-knowledge store (learnings from real runs). |
 
-v1 ships the kernel (`LOOP.md`), the authoring rule, the ready-to-build linter contract,
-the safe batch-execution canon, the optional run-journal format, the scaffolds, the worked
-trace, the interview + construct/run/reopen/resume-parked prompts, and the optional
-fresh-session runner. The remaining expository canon docs, prompts
-(checkpoint review, failure classification), durable-handoff templates, migrations, agent
-adapters, and the actual linter binary are forthcoming — each will reference `LOOP.md`
-rather than re-declare it.
+## Migration status (v1 → v2)
+
+v1 — the recorded-state kernel (`loop.state.jsonl` ledger, journal, interview prompts,
+shard-based batch canon, separate linter/runner) — is frozen on the **`v1` branch**. The
+remaining v1 docs still present here (`INTERVIEW.md`, `JOURNAL.md`, `BATCH-EXECUTION.md`,
+`LINTER.md`, `WALKTHROUGH.md`, `AUTHORING.md`, `prompts/`, `scaffolds/`, `runner/`) are
+**pending rewrite or deletion** against the v2 kernel and should not be followed for a
+v2 loop; the redesign rationale and cut list live in
+`docs/plans/2026-07-03-relay-v2-artifact-graph-redesign.md` (on disk, unversioned).
+Next milestone: re-run the Selenium→Playwright benchmark on v2 before those docs move.
