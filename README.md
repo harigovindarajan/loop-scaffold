@@ -31,6 +31,89 @@ reconciler/loop gate tc-01 probe    # run the gate; commit the proof on pass
 reconciler/loop run           # fresh agent session per pick, unattended
 ```
 
+## Worked example — a code migration (Selenium → Playwright)
+
+The task the v2 kernel is benchmarked on. You don't seed a ledger; per
+[`CONSTRUCT.md`](CONSTRUCT.md) you describe the pipeline in your own words and let the
+agent compose the plan. Prompt to green:
+
+**1. The prompt** — describe the pipeline, in your vocabulary:
+
+> Migrate our Selenium E2E suite to Playwright. **One unit of work is a single spec
+> file** — start with `login`, `checkout`, and `search`. Each spec goes through four
+> steps:
+>
+> 1. **probe** — read the Selenium test and write a locator + flow map to
+>    `locator-maps/{spec}.json`; done when its `status` is `completed`. **Batch this** —
+>    do all three in one pass.
+> 2. **port** — hand the map to the **migrator subagent**, which writes the Playwright
+>    spec to `tests/{spec}.ts`; done when it typechecks.
+> 3. **review** — the **reviewer subagent** writes a PASS/FAIL verdict to
+>    `reports/{spec}-review.json`; if it fails, the fix goes back to **port**. I want to
+>    eyeball these until I trust it — **retire the human check after 3 clean passes**.
+> 4. **test** — done when `npx playwright test` passes; keep no artifact, the run *is*
+>    the proof.
+>
+> Two specs in flight at once, 3 retries before you park it for me. Build `loop.json`,
+> show me, and **run nothing until I've committed it**.
+
+**2. The composed `loop.json`** — every phrase above lands on a plan field
+([`LOOP.md` §1](LOOP.md#1-the-plan)); nothing invented:
+
+```json
+{
+  "name": "selenium-to-playwright",
+  "version": 2,
+  "items": ["login.spec", "checkout.spec", "search.spec"],
+  "stages": [
+    {
+      "name": "probe",
+      "executor": "self",
+      "produces": ["locator-maps/{item}.json"],
+      "gate": { "run": "jq -e '.status==\"completed\"' locator-maps/{item}.json" },
+      "instructions": "docs/stages/probe.md",
+      "batchable": true
+    },
+    {
+      "name": "port",
+      "executor": "migrator-agent",
+      "produces": ["tests/{item}.ts"],
+      "gate": { "run": "npx tsc --noEmit" },
+      "instructions": "docs/stages/port.md"
+    },
+    {
+      "name": "review",
+      "executor": "reviewer-agent",
+      "produces": ["reports/{item}-review.json"],
+      "gate": { "run": "jq -e '.verdict==\"PASS\"' reports/{item}-review.json" },
+      "onFail": "port",
+      "approval": { "graduation": { "afterCleanPasses": 3 } }
+    },
+    {
+      "name": "test",
+      "executor": "self",
+      "produces": [],
+      "gate": { "run": "npx playwright test tests/{item}.ts" }
+    }
+  ],
+  "policy": { "parallel": 2, "maxAttempts": 3 }
+}
+```
+
+**3. Commit is the acceptance, then run** — the git log becomes the run history:
+
+```sh
+git add loop.json && git commit -m "accept: selenium→playwright plan"
+reconciler/loop validate      # ids unique, gates well-formed, onFail targets exist
+reconciler/loop run --max-iters 40   # batched probe, port→review per spec, test to green
+git log --grep='^loop(' --oneline    # the run history — no journal to keep
+```
+
+Same four verbs as any other loop — only the `items`, the `gate` commands, and the two
+subagents changed. The protocol is fixed; your task fills in the blanks. Compose fresh:
+the [`examples/`](examples/) starters are example outputs, not shortcuts past the
+elicitation.
+
 ## What's in the repo
 
 | Path | Purpose |
