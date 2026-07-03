@@ -3,5 +3,5 @@
 /docs/*
 !/docs/solutions/
 
-# Runtime log emitted by the optional runner — not source.
-/runner/run-loop.log
+# Runtime artifacts a loop run emits into its loop dir — not source.
+loop.run.log

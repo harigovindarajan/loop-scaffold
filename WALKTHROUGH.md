@@ -1,250 +1,86 @@
-# WALKTHROUGH.md
+# WALKTHROUGH.md — one item, end to end
 
-A narrated worked trace of one row moving through the loop. This doc restates no kernel
-rules: it shows concrete transitions whose meaning is checked against
-[`LOOP.md`](LOOP.md), especially §3, §4, §5, and §6.
+A narrated trace of a v2 loop. Everything normative is in [`LOOP.md`](LOOP.md); this doc
+only shows the rules happening. The pipeline is a small doc-migration:
 
-The scaffold used here is the shipped checkpoint shape:
-
-```text
-implement (agent) -> review (checkpoint) -> verify (verify)
+```jsonc
+{
+  "name": "walkthrough", "version": 2, "items": ["tc-05", "tc-06"],
+  "stages": [
+    { "name": "draft",  "executor": "self", "produces": ["docs/{item}.md"],
+      "gate": { "artifact": true } },
+    { "name": "review", "executor": "reviewer-bot", "produces": ["reports/{item}.json"],
+      "gate": { "run": "jq -e '.verdict==\"PASS\"' reports/{item}.json" },
+      "onFail": "draft",
+      "approval": { "graduation": { "afterCleanPasses": 2 } } },
+    { "name": "verify", "executor": "self", "produces": [],
+      "gate": { "run": "grep -q ok docs/{item}.md" }, "batchable": true }
+  ],
+  "policy": { "parallel": 2, "maxAttempts": 3 }
+}
 ```
 
-`scaffolds/loop.state.example.jsonl` shows rows at rest. This file shows one row moving:
-each step has a before line, the action that happened, and the after line that would be
-persisted. The rows are faithful in their **kernel fields**; some optional, free-form
-`metadata` counters (e.g. `reopenCount`, which `prompts/reopen-item.md` increments on
-reopen) are elided for readability, so read the JSON as exact in its kernel fields and
-abbreviated in its metadata.
+**Acceptance.** The user edits the draft plan, then commits it. That commit is the
+construction gate ([`LOOP.md` §8](LOOP.md#8-operating-the-loop)) — before it, running
+anything is a protocol violation.
 
----
+**Derivation, not lookup.** `reconciler/loop status` computes positions
+([`LOOP.md` §2](LOOP.md#2-position-is-computed-never-stored)): no pass-commit for
+`loop(tc-05): draft ✓` exists, so tc-05 is *at draft, pending*. Nothing was read from
+any state file, because there is none.
 
-## 1. Agent stage passes into the checkpoint
+**A pass is a commit.** You write `docs/tc-05.md`, then `loop gate tc-05 draft`. The
+artifact gate checks the file exists non-empty and commits it:
 
-Taxonomy code: `pass`. Stage kind: `agent`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "pending", "stage": "implement", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": [], "updatedAt": "2026-06-23T10:00:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z"}}
+```
+loop(tc-05): draft ✓
+Gate: artifact: docs/{item}.md
+Produces: docs/tc-05.md=9f2c…
 ```
 
-Action: `prompts/run-one-iteration.md` runs `implement` and checks the persisted line
-against [`LOOP.md` §4](LOOP.md#4-failure-taxonomy) and
-[`LOOP.md` §6](LOOP.md#6-operating-the-loop).
+Position now derives to *review* — because that commit exists, not because anyone
+updated a row ([`LOOP.md` §4](LOOP.md#4-the-gate–commit-invariant)).
 
-After:
+**A failed gate is not negotiable.** reviewer-bot writes
+`reports/tc-05.json` with `"verdict": "FAIL"` and blocking findings.
+`loop gate tc-05 review` exits non-zero. You classify it
+([`LOOP.md` §5](LOOP.md#5-failure-taxonomy)): a fixable defect →
+`loop note attempt tc-05 --stage review --note "missing assertion"`. The stage's
+`onFail: draft` says the *draft* executor owns the fix — you repair `docs/tc-05.md`.
 
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "review", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:05:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z"}}
+**Staleness routes the reopen.** The moment `docs/tc-05.md` changes, its hash no longer
+matches the `Produces:` trailer of draft's pass-commit — position falls back to *draft*
+(`edited-after-pass`). Re-gate draft; review then derives as *stale* (its recorded
+`Inputs:` hash for `docs/tc-05.md` is outdated) and re-runs. No reopen bookkeeping —
+the hashes did the routing.
+
+**Approval, then graduation.** Review now passes mechanically, but the stage carries
+`approval`, so tc-05 holds at *awaiting-approval* — the human's move, and `loop next`
+will not pick it. The user checks the report:
+`loop note approve tc-05 --stage review`. After 2 clean approvals uninterrupted by an
+`attempt` on that stage, the human gate retires ([`LOOP.md` §6](LOOP.md#6-human-gates-and-graduation)) —
+tc-06 and everything after pass on the mechanical gate alone. Trust was earned, not
+hand-edited into the plan.
+
+**Parking is the only written state.** Suppose tc-06's review needs a product decision:
+`loop note park tc-06 --state needs-human --note "keep the flaky caveat?"` — one line in
+`loop.notes.jsonl` ([`LOOP.md` §7](LOOP.md#7-the-notes-file-exceptions-only)). Picking
+skips it until `loop note unpark tc-06 --note "user: keep it"`. If instead a retryable
+defect burns `policy.maxAttempts`, the attempt note auto-parks it as `needs-human` — a
+wedged item surfaces instead of starving the loop.
+
+**Batching is legal.** Both items reach *verify*, which is `batchable`: `loop next`
+emits **one** pick covering both. Each still gates individually — two empty pass-commits
+(`produces: []`, so the message is the proof).
+
+**Kill it anywhere; resume by reconciling.** Kill the session mid-write: the tree is
+dirty, and `status` warns that ungated work is present, trusting only committed gates.
+Nothing in memory was load-bearing — the next session reconciles and continues. The
+run's history needs no separate journal; it *is* the log:
+
 ```
-
----
-
-## 2. Checkpoint rejection reopens the producer stage
-
-Taxonomy code: `retryable-defect`. Stage kind: `checkpoint`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "review", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:05:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z"}}
+git log --oneline --grep='^loop('
+e21f0c3 loop(tc-06): verify ✓
+91b44d7 loop(tc-05): verify ✓
+…
 ```
-
-Action: the checkpoint rejects the artifact. Because repair belongs at the producer,
-`prompts/reopen-item.md` performs the write and checks it against its canon reopen behavior
-plus [`LOOP.md`](LOOP.md). The reopen write also increments `metadata.reopenCount` (the
-bound that escalates a ping-ponging item to `human-exception` past the loop's budget);
-it is omitted from the rows below for brevity.
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "implement", "attempts": 0, "lastError": {"code": "retryable-defect", "note": "review rejected: add the missing setup note"}, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:08:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "add the missing setup note"}}
-```
-
----
-
-## 3. Agent repair passes back to review
-
-Taxonomy code: `pass`. Stage kind: `agent`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "implement", "attempts": 0, "lastError": {"code": "retryable-defect", "note": "review rejected: add the missing setup note"}, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:08:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "add the missing setup note"}}
-```
-
-Action: `prompts/run-one-iteration.md` repairs the artifact and persists the next line
-after its self-check.
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "review", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:16:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
----
-
-## 4. Checkpoint passes into verification
-
-Taxonomy code: `pass`. Stage kind: `checkpoint`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "review", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:16:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
-Action: `prompts/run-one-iteration.md` runs the checkpoint again and persists the checked
-line.
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:20:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
----
-
-## 5. Verification finds a retryable defect in place
-
-Taxonomy code: `retryable-defect`. Stage kind: `verify`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:20:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
-Action: `prompts/run-one-iteration.md` runs verification, classifies the failure, and
-persists the checked line using the same-stage retry boundary in
-[`LOOP.md` §4](LOOP.md#4-failure-taxonomy).
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 1, "lastError": {"code": "retryable-defect", "note": "verification failed: note lacks final command output"}, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:23:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
----
-
-## 6. Verification hits an environmental block
-
-Taxonomy code: `blocked-environment`. Stage kind: `verify`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 1, "lastError": {"code": "retryable-defect", "note": "verification failed: note lacks final command output"}, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:23:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
-Action: the verification command cannot run because the required service is unavailable;
-`prompts/run-one-iteration.md` classifies and persists the checked line.
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "blocked", "stage": "verify", "attempts": 1, "lastError": {"code": "blocked-environment", "note": "verification service unavailable"}, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:27:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
----
-
-## 7. Environmental block clears and the row is unparked
-
-Taxonomy code: none; this is the administrative unpark path in
-[`LOOP.md` §6](LOOP.md#6-operating-the-loop).
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "blocked", "stage": "verify", "attempts": 1, "lastError": {"code": "blocked-environment", "note": "verification service unavailable"}, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:27:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note"}}
-```
-
-Action: `prompts/resume-parked-item.md` rewrites the row after confirming the service has
-returned and the line remains well-formed against [`LOOP.md` §3](LOOP.md#3-work-item-row-shape).
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 1, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:45:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note", "unblockedBy": "verification service restored"}}
-```
-
----
-
-## 8. Verification needs a human decision
-
-Taxonomy code: `human-exception`. Stage kind: `verify`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 1, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:45:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note", "unblockedBy": "verification service restored"}}
-```
-
-Action: verification reaches a product question only a human can answer;
-`prompts/run-one-iteration.md` classifies and persists the checked line.
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "needs-human", "stage": "verify", "attempts": 1, "lastError": {"code": "human-exception", "note": "human decision needed: include the flaky-output caveat?"}, "needsHuman": true, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:50:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note", "unblockedBy": "verification service restored"}}
-```
-
----
-
-## 9. Human input arrives and the row is unparked
-
-Taxonomy code: none; this is the second administrative unpark path in
-[`LOOP.md` §6](LOOP.md#6-operating-the-loop).
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "needs-human", "stage": "verify", "attempts": 1, "lastError": {"code": "human-exception", "note": "human decision needed: include the flaky-output caveat?"}, "needsHuman": true, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T10:50:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note", "unblockedBy": "verification service restored"}}
-```
-
-Action: `prompts/resume-parked-item.md` records the human answer and checks the rewritten
-line against [`LOOP.md` §3](LOOP.md#3-work-item-row-shape).
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 1, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T11:10:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note", "unblockedBy": "verification service restored", "humanInput": "include the caveat in the verification note"}}
-```
-
----
-
-## 10. Terminal verification passes
-
-Taxonomy code: `pass`. Stage kind: `verify`.
-
-Before:
-
-```jsonl
-{"id": "item-001", "status": "in-progress", "stage": "verify", "attempts": 1, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T11:10:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note", "unblockedBy": "verification service restored", "humanInput": "include the caveat in the verification note"}}
-```
-
-Action: `prompts/run-one-iteration.md` runs the terminal stage, applies the checked
-`pass` result against [`LOOP.md` §4](LOOP.md#4-failure-taxonomy) and
-[`LOOP.md` §6](LOOP.md#6-operating-the-loop), and persists the final line.
-
-After:
-
-```jsonl
-{"id": "item-001", "status": "done", "stage": null, "attempts": 0, "lastError": null, "needsHuman": false, "artifacts": ["docs/validation-note.md"], "updatedAt": "2026-06-23T11:18:00Z", "metadata": {"task": "produce the validation note", "acceptedAt": "2026-06-23T09:55:00Z", "reviewFeedback": "addressed: add the missing setup note", "unblockedBy": "verification service restored", "humanInput": "include the caveat in the verification note"}}
-```
-
----
-
-## Coverage Map
-
-The trace gives a concrete place to inspect each kernel behavior without defining it here:
-
-- Taxonomy codes: `pass` (§1, §3, §4, §10), `retryable-defect` (§2, §5),
-  `blocked-environment` (§6), `human-exception` (§8).
-- Stage kinds: `agent` (§1, §3), `checkpoint` (§2, §4), `verify` (§5, §6, §8, §10).
-- Canon paths: checkpoint reject -> reopen (§2), blocked unpark (§7), needs-human unpark
-  (§9).
-
-For the actual rule text behind those examples, read [`LOOP.md`](LOOP.md).

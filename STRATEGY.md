@@ -1,6 +1,6 @@
 ---
 name: Relay
-last_updated: 2026-06-23
+last_updated: 2026-07-03
 ---
 
 # Relay Strategy
@@ -16,93 +16,91 @@ The crux is long-horizon autonomy with clean, resumable state.
 
 ## Our approach
 
-Make the durable ledger the single source of loop state: the agent holds almost nothing
-in context — every transition is persisted as one ledger line — so the orchestrator
-stays flat over a day-long job and any interruption resumes straight from the ledger.
-The loop is a protocol the agent reads (docs, not an engine to install). Solve this
-end-to-end for Claude Code first; cross-agent portability is a later bet, not a v1 gate.
+**Derive state from artifacts instead of recording it.** The plan declares, per stage,
+the artifact it produces, the gate that proves it, and the executor that does it; an
+item's position is computed — the first stage whose gate doesn't pass — and every
+gate-pass is a git commit, so the run history is the git log. The agent maintains no
+parallel bookkeeping, which is why the state cannot drift and the audit trail cannot be
+fabricated (both failure modes v1's recorded-state ledger exhibited in real runs — see
+`docs/plans/2026-07-03-relay-v2-artifact-graph-redesign.md`). The loop stays a protocol
+the agent reads (docs, not an engine); one optional small reconciler CLI mechanizes it.
+Solve this end-to-end for Claude Code first; cross-agent portability is a later bet.
 
 ## Who it's for
 
 **Primary:** The migration owner — an engineer responsible for a large,
 mechanical-but-judgment-heavy migration (first instance: Selenium→Playwright, ~2,000
-tests). They're hiring Relay to compose a pipeline, supervise the first few iterations
+tests). They're hiring Relay to compose a pipeline, supervise the first few picks
 until they trust it, then walk away and let it run autonomously for a day or two —
 turning a week of babysitting an agent into an afternoon of setup plus spot-checks.
 
 ## Key metrics
 
-- **Autonomous-run ratio** - iterations completed with zero human touch ÷ total
-  iterations; should climb as confidence is tuned out. Source: the append-only run
-  journal ([`JOURNAL.md`](JOURNAL.md)), not the live `loop.state.jsonl`, which is a
-  mutable table holding current state only.
-- **Human-review touch count** - absolute number of human interventions (review1 +
-  checkpoint rejections + `needs-human`); the number tuned toward near-zero. Source:
-  the run journal ([`JOURNAL.md`](JOURNAL.md)); the live ledger does not retain past
-  transitions, so per-item counters like `attempts`/`reopenCount` reflect only the
-  current stage.
-- **Clean-resume rate** - interruptions that resume correctly with no lost or redone
-  work ÷ total interruptions; the direct test of the core bet. Source: replay of the run
-  journal ([`JOURNAL.md`](JOURNAL.md)) against the ledger position.
-- **Orchestrator context flatness** - per-iteration context size stays ~constant across
-  hundreds of iterations. Source: run-time context instrumentation (not in the ledger
-  today).
-- **Migration yield** - tests passing `review2` (static + runtime) without human rework
-  ÷ attempted; the lagging quality check. Source: CI / verify-stage results.
+All read from the repo itself — the pass-commits (`git log --grep='^loop('`) and the
+exceptions file (`loop.notes.jsonl`); there is no separate journal to trust:
+
+- **Autonomous-run ratio** — pass-commits ÷ (pass-commits + `attempt`/`park` notes plus
+  `approve` notes while un-graduated). Should climb as approvals graduate.
+- **Human-touch count** — `approve` + `unpark` notes plus `needs-human` parks; the
+  number tuned toward near-zero.
+- **Clean-resume rate** — after an interruption, reconcile must reproduce positions
+  from commits + notes with no lost or redone work; a divergence is a defect in the
+  gate–commit discipline, and it is *detectable* (`reconciler/loop status`), not silent.
+- **Orchestrator context flatness** — per-pick context size stays ~constant across
+  hundreds of picks. Source: run-time instrumentation.
+- **Migration yield** — items whose terminal gate passes without human rework ÷
+  attempted; the lagging quality check.
 
 ## Tracks
 
-### Resumable ledger kernel
+### Derived-state kernel — **built (v2)**
 
-The durable state model — one transition per iteration, resume-from-ledger, the failure
-taxonomy. Mostly built today in `LOOP.md`; the foundation everything else stands on.
+The artifact-graph kernel: produces/gate/executor per stage, computed positions, the
+gate–commit invariant, staleness-routed reopens, the failure taxonomy. `LOOP.md`.
 
-_Why it serves the approach:_ It *is* "state lives in the ledger, not the context" —
-the mechanism that makes a day-long job resumable and immune to context blow-up.
+_Why it serves the approach:_ it *is* the approach — state lives in the artifacts and
+the git log, so a day-long job resumes from a reconcile and the orchestrator carries
+nothing.
 
-### Confidence-gated human review
+### Confidence-gated human review — **built (v2), unproven at scale**
 
-Tunable checkpoints, heavy at establishment and ramped out per capability and per batch:
-a human reviews the first batch (e.g. 4 mid-to-complex tests) to establish each
-capability — contract decisions like test-data isolation, cleanup, and locator strategy,
-then runtime verification on that same batch — and once each is trusted the human is
-tuned out of it and called only for interruptions.
+`approval` stages with `graduation.afterCleanPasses`: heavy human review at
+establishment, retired automatically once trust is earned. Replaces v1's hand-edited
+checkpoint removal.
 
-_Why it serves the approach:_ It's how the loop earns the right to run unattended; it's
-the mechanism behind the touch-count and autonomous-run metrics.
+_Why it serves the approach:_ it's how the loop earns the right to run unattended; the
+touch-count metric falls as gates graduate.
 
-### Context durability
+### Reconciler CLI — **built (v0)**
 
-Durable memory plus sub-agent delegation so the orchestrator stays flat over a day-long
-job instead of accumulating context across hundreds of iterations. Largely unbuilt today
-(the kernel is single-agent linear); the design layer this strategy commits to adding.
+`reconciler/loop`: status (derive + lint), next, gate (run + commit proof), note, run
+(fresh-session pump with stall/parked halts). Subsumes v1's planned linter and runner.
 
-_Why it serves the approach:_ The autonomy bet fails without it — it's the currently
-missing piece the long horizon demands.
+_Why it serves the approach:_ it makes the compliant path the cheapest path — the agent
+runs one command to gate-and-commit instead of hand-writing bookkeeping.
 
-### Reference linter
+### Parallel throughput — **kernel-native, unproven at scale**
 
-The lightweight checker that validates `loop.json` and `loop.state.jsonl` without executing
-stages. Its contract is now ready to build in `LINTER.md`; it is the cheap guardrail for
-long unattended runs and the prerequisite for safe batch merge.
+`policy.parallel` and `batchable` stages; disjoint items need no coordination because
+there is no shared state file. The open edge is shared-artifact contention (e.g.
+common page objects), currently a serialize-by-convention rule (`LOOP.md` §4).
 
-_Why it serves the approach:_ It turns ledger-state autonomy from prose discipline into a
-repeatable conformance check while keeping the product docs-first rather than engine-first.
+_Why it serves the approach:_ the ~2,000-test target is unreachable one-item-at-a-time;
+parallelism is load-bearing for the strategy, not an optimization.
 
-### Multi-agent batch execution
+### Benchmark validation — **next milestone**
 
-Parallel throughput by partitioning established work into independent loop shards, each run
-by one worker agent, then merging the resulting ledgers. The first design avoids shared-file
-concurrency entirely: no two agents write the same `loop.state.jsonl`.
-
-_Why it serves the approach:_ Once confidence is earned, the same durable state model can
-scale from one item at a time to many independent items at once without weakening the kernel.
+Re-run the Selenium→Playwright migration on v2 with the same subagents and compare
+against the v1-era run receipts: manual pumps needed, wall-clock per slice, violations
+detected, honest resume after a forced kill. Gates merging `v2` to `main`.
 
 ## Not working on
 
 - **Cross-agent portability (Codex, OpenCode).** Real goal, later bet — Claude Code is
-  the first and only target until ledger-state autonomy is proven.
-- **Shared-ledger concurrent writes.** Batch execution uses independent shards first; direct
-  concurrent edits to one `loop.state.jsonl` wait for a real lock or runtime discipline.
-- **A mandatory runtime engine.** The product stays docs-and-protocol, not an installed
-  engine.
+  the first and only target until the benchmark validates v2. (v2 asks less of the
+  agent than v1 did, which should transfer better — a hypothesis until run.)
+- **Shared-artifact concurrent writes.** Parallelism over disjoint items is native;
+  contended shared artifacts stay serialized by convention until a real ownership or
+  lock discipline earns its place.
+- **A mandatory runtime engine.** The product stays docs-and-protocol; the reconciler
+  is optional and adds no rules.
