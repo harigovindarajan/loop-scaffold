@@ -1,0 +1,20 @@
+{
+  "name": "minimal",
+  "version": 2,
+  "items": ["unit-001", "unit-002"],
+  "stages": [
+    {
+      "name": "implement",
+      "executor": "self",
+      "produces": ["out/{item}.md"],
+      "gate": { "artifact": true }
+    },
+    {
+      "name": "verify",
+      "executor": "self",
+      "produces": [],
+      "gate": { "run": "test -s out/{item}.md" }
+    }
+  ],
+  "policy": { "parallel": 1, "maxAttempts": 3 }
+}

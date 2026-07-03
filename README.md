@@ -13,15 +13,16 @@ Read **[`LOOP.md`](LOOP.md)** — the whole kernel, and the single source of tru
 the plan shape, the position function, the gate–commit invariant, and the failure
 taxonomy. Reading it plus an accepted `loop.json` is everything an agent needs.
 
-**Construction is gated:** execution may not begin until `loop.json` is drafted, edited
-by the user, and **committed** — the plan's commit is the acceptance
-([`LOOP.md` §8](LOOP.md#8-operating-the-loop)).
+**Building the plan comes first, and it is gated.** Follow
+[`CONSTRUCT.md`](CONSTRUCT.md): elicit (checklist, in the user's vocabulary), compose
+`loop.json`, let the user edit the file itself, and **execute nothing until the plan is
+committed** — the commit is the acceptance.
 
 ## Quickstart
 
 ```sh
 git init                      # the kernel requires a git repo
-# 1. draft loop.json with your stages (see LOOP.md §1 for the shape), edit, commit it
+# 1. build loop.json via CONSTRUCT.md (examples/ shows the shape), edit, commit it
 # 2. derive positions, pick, execute, gate, commit — LOOP.md §8
 #    …or let the reconciler mechanize it:
 reconciler/loop status        # where is every item? (also validates the plan)
@@ -34,17 +35,22 @@ reconciler/loop run           # fresh agent session per pick, unattended
 
 | Path | Purpose |
 | --- | --- |
-| [`LOOP.md`](LOOP.md) | **v2 kernel.** Read first; everything else references it. |
+| [`LOOP.md`](LOOP.md) | **The v2 kernel.** Read first; everything else references it. |
+| [`CONSTRUCT.md`](CONSTRUCT.md) | Task → accepted plan: elicitation checklist, vocabulary map, compose, commit-as-acceptance. |
+| [`WALKTHROUGH.md`](WALKTHROUGH.md) | Narrated trace: gates, staleness reopen, approval graduation, parking, resume. |
+| [`examples/`](examples/) | Starter plans — example outputs of the construction flow. |
+| [`prompts/run-one-pick.md`](prompts/run-one-pick.md) | The one runnable prompt: advance the loop by a single pick. |
 | [`reconciler/`](reconciler/) | **Optional** CLI: `status` / `next` / `gate` / `note` / `validate` / `run`. Mechanizes the kernel; adds no rules. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | The one authoring rule: reference the kernel, never restate it. |
+| [`STRATEGY.md`](STRATEGY.md) | Product strategy, metrics (read from git log + notes), track status. |
 | `docs/solutions/` | Compounding-knowledge store (learnings from real runs). |
 
-## Migration status (v1 → v2)
+## Status
 
-v1 — the recorded-state kernel (`loop.state.jsonl` ledger, journal, interview prompts,
-shard-based batch canon, separate linter/runner) — is frozen on the **`v1` branch**. The
-remaining v1 docs still present here (`INTERVIEW.md`, `JOURNAL.md`, `BATCH-EXECUTION.md`,
-`LINTER.md`, `WALKTHROUGH.md`, `AUTHORING.md`, `prompts/`, `scaffolds/`, `runner/`) are
-**pending rewrite or deletion** against the v2 kernel and should not be followed for a
-v2 loop; the redesign rationale and cut list live in
-`docs/plans/2026-07-03-relay-v2-artifact-graph-redesign.md` (on disk, unversioned).
-Next milestone: re-run the Selenium→Playwright benchmark on v2 before those docs move.
+v2 (this branch) ships the artifact-graph kernel, the construction canon, the worked
+trace, the starter plans, and the reconciler CLI — replacing v1's recorded-state ledger,
+journal, interview prompts, shard-based batch canon, and separate linter/runner
+contracts. v1 is frozen on the **`v1` branch**; the redesign rationale and evidence live
+in `docs/plans/2026-07-03-relay-v2-artifact-graph-redesign.md` (on disk, unversioned).
+Merging v2 to `main` is gated on re-running the Selenium→Playwright benchmark against
+this kernel.

@@ -183,8 +183,9 @@ newer than the stage's last pass-commit. Passes never appear here; passes are co
 ## 8. Operating the loop
 
 **Construction gate (once).** Execution may not begin until `loop.json` exists *and is
-committed* — drafted by you, edited and accepted by the user; the plan's commit is the
-acceptance. Deriving a plan and executing it in one uncommitted breath is the misuse
+committed* — drafted by you (the elicitation and composition flow is
+[`CONSTRUCT.md`](CONSTRUCT.md)), edited and accepted by the user; the plan's commit is
+the acceptance. Deriving a plan and executing it in one uncommitted breath is the misuse
 this gate exists to stop.
 
 **Then, repeatedly:**
