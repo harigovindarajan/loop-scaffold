@@ -9,11 +9,12 @@
       "produces": ["contracts/{item}.md"],
       "gate": { "artifact": true },
       "instructions": "docs/stages/contract.md",
-      "batchable": true
+      "batchable": { "max": 3 }
     },
     {
       "name": "implement",
       "executor": "implementer-agent",
+      "with": { "styleguide": "docs/style.md" },
       "produces": ["src/{item}/*"],
       "gate": { "run": "npm run typecheck" },
       "instructions": "docs/stages/implement.md"
@@ -22,9 +23,12 @@
       "name": "review",
       "executor": "reviewer-agent",
       "produces": ["reports/{item}-review.json"],
-      "gate": { "run": "jq -e '.verdict==\"PASS\"' reports/{item}-review.json" },
+      "gate": {
+        "run": "jq -e '.verdict==\"PASS\"' reports/{item}-review.json",
+        "expects": "review verdict JSON with a top-level verdict field"
+      },
       "onFail": "implement",
-      "approval": { "graduation": { "afterCleanPasses": 3 } }
+      "approval": { "graduation": { "afterCleanPasses": 3, "resetOn": "new-findings" } }
     },
     {
       "name": "verify",

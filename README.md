@@ -45,7 +45,9 @@ agent compose the plan. Prompt to green:
 >
 > 1. **probe** — read the Selenium test and write a locator + flow map to
 >    `locator-maps/{spec}.json`; done when its `status` is `completed`. **Batch this** —
->    do all three in one pass.
+>    do all three in one pass. The probe should **reuse my page objects in `pages/`
+>    and keep its locator cache in `.loop-cache/locators/`** instead of re-driving
+>    pages it has already seen.
 > 2. **port** — hand the map to the **migrator subagent**, which writes the Playwright
 >    spec to `tests/{spec}.ts`; done when it typechecks.
 > 3. **review** — the **reviewer subagent** writes a PASS/FAIL verdict to
@@ -69,6 +71,10 @@ agent compose the plan. Prompt to green:
     {
       "name": "probe",
       "executor": "self",
+      "with": {
+        "page-objects": "pages/",
+        "locator-cache": ".loop-cache/locators/"
+      },
       "produces": ["locator-maps/{item}.json"],
       "gate": { "run": "jq -e '.status==\"completed\"' locator-maps/{item}.json" },
       "instructions": "docs/stages/probe.md",
@@ -99,6 +105,11 @@ agent compose the plan. Prompt to green:
   "policy": { "parallel": 2, "maxAttempts": 3 }
 }
 ```
+
+The `with` map carries the probe's extra inputs verbatim — the kernel never interprets
+the keys ([`LOOP.md` §1](LOOP.md#1-the-plan)). Because the probe *writes* to
+`.loop-cache/locators/`, that path is gitignored in the loop repo, keeping the
+dirty-tree rule intact ([`LOOP.md` §4](LOOP.md#4-the-gate–commit-invariant)).
 
 **3. Commit is the acceptance, then run** — the git log becomes the run history:
 

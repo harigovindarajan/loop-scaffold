@@ -27,10 +27,12 @@ The checklist (each line names the plan field it becomes):
 | Who does each step — you, or a named subagent? | `executor` |
 | **What command proves each step is done?** Push for a runnable check; a prose gate is a wish ([`LOOP.md` §3](LOOP.md#3-gates)). | `gate` |
 | What rules or runbooks does a step follow? | that stage's `instructions` doc |
+| Does a step's doer take extra named inputs — a config, reference material, a cache? Does the doer's own contract define optional inputs? Wire each one or record why not. For each: does the doer **write** there? | that stage's `with` map; written paths get gitignored in the loop repo ([`LOOP.md` §4](LOOP.md#4-the-gate–commit-invariant)) |
+| How long is unreasonably long for one step's call? | `policy.stageTimeoutMinutes`, per-stage `timeoutMinutes` ([`LOOP.md` §5](LOOP.md#5-failure-taxonomy)) — leave unset for no timeout |
 | Which artifacts must a human review — and does the review **retire** once trusted, after how many clean passes? | `approval` + `graduation.afterCleanPasses` |
 | When a review fails, which earlier step owns the fix? | `onFail` |
 | Retry / block / escalate intent, and how many retries before a human sees it? | `policy.maxAttempts` + park classification ([`LOOP.md` §5](LOOP.md#5-failure-taxonomy)) |
-| How many units in flight at once; which steps can one call cover for many units? | `policy.parallel`, `batchable` |
+| How many units in flight at once; which steps can one call cover for many units — and at most how many per call? | `policy.parallel`, `batchable` / `batchable.max` |
 
 If an answer is missing, use the leanest default: one `self` stage with an artifact
 gate, a terminal `run` gate, `parallel: 1`, `maxAttempts: 3`, no approvals.
@@ -47,6 +49,7 @@ Users do not speak in plan fields. Translate, and confirm the translation:
   `instructions` runbook.
 - *"human review until I trust it"* → `approval.graduation` — ask for the number.
 - *"use agent X for that part"* → `executor`.
+- *"my tool needs its config / cache / reference material"* → that stage's `with` map.
 
 ## 3. Compose
 
@@ -62,7 +65,27 @@ outputs, not shortcuts. Prefer:
 - `batchable` on stages whose one invocation naturally covers many items (probing,
   contract-writing) — that is where the throughput lives.
 
-## 4. Acceptance is the commit
+## 4. Contract check — before presenting the plan
+
+For **every stage whose `executor` is not `self`**, compare the executor's declared
+output contract — filename pattern, file schema, required fields — against the stage's
+`produces` and `gate`. Where they disagree, the adapter instruction ("name the file X",
+"add field Y") is written into the stage's committed `instructions` file, **never only
+into an invocation prompt** — a prompt is ephemeral, and a fresh session re-deriving
+the loop would re-discover the mismatch or fail the gate. Record the gate's expected
+artifact shape as `gate.expects` ([`LOOP.md` §3](LOOP.md#3-gates)) so the comparison is
+reviewable in the plan itself.
+
+Two more checks ride along here:
+
+- **Exclusive live resources.** Executors holding exclusive live resources must
+  isolate per call; when `policy.parallel > 1` meets such an executor, elicit the
+  isolation mechanism and record it in the stage's `instructions`.
+- **Hygiene.** Flag any contract, instructions file, or `with` value that inlines
+  credential-adjacent literals; reference such values indirectly per
+  [`LOOP.md` §7](LOOP.md#7-the-notes-file-exceptions-only).
+
+## 5. Acceptance is the commit
 
 Present the drafted plan. The user edits the file itself — stages, gates, budgets — not
 a summary of it. **Execute nothing until the user accepts and `loop.json` is

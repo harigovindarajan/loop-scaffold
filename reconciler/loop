@@ -7,9 +7,10 @@
 # Usage:
 #   loop status   [--loop-dir DIR] [--json]     derive every item's position (also validates)
 #   loop next     [--loop-dir DIR] [--json]     print the next pick(s)
-#   loop gate     <item> <stage> [--loop-dir DIR]   run the gate; commit on pass (LOOP.md §4)
+#   loop gate     <item> <stage> [--took MIN] [--loop-dir DIR]  run the gate; commit on pass (LOOP.md §4)
 #   loop note     <park|unpark|attempt|approve|cancel> <item>
-#                 [--stage S] [--state blocked|needs-human] [--note TEXT] [--loop-dir DIR]
+#                 [--stage S] [--state blocked|needs-human] [--note TEXT]
+#                 [--took MIN] [--no-new-findings] [--loop-dir DIR]
 #   loop validate [--loop-dir DIR]              validate loop.json only
 #   loop run      [--loop-dir DIR] [--max-iters N]  fresh-session pump (reconciler.json)
 #
@@ -44,7 +45,7 @@ JSON_OUT=0
 MAX_ITERS_ARG=""
 POSITIONAL=()
 SUBCMD="${1:-}"; [[ $# -gt 0 ]] && shift
-NOTE_STAGE=""; NOTE_STATE=""; NOTE_TEXT=""
+NOTE_STAGE=""; NOTE_STATE=""; NOTE_TEXT=""; TOOK_MIN=""; NO_NEW_FINDINGS=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --loop-dir)  LOOP_DIR="${2:?}"; shift 2 ;;
@@ -53,12 +54,15 @@ while [[ $# -gt 0 ]]; do
     --stage)     NOTE_STAGE="${2:?}"; shift 2 ;;
     --state)     NOTE_STATE="${2:?}"; shift 2 ;;
     --note)      NOTE_TEXT="${2:?}"; shift 2 ;;
-    -h|--help)   sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --took)      TOOK_MIN="${2:?}"; shift 2 ;;
+    --no-new-findings) NO_NEW_FINDINGS=1; shift ;;
+    -h|--help)   sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)           POSITIONAL+=("$1"); shift ;;
   esac
 done
 
-[[ -n "${SUBCMD}" ]] || { sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+[[ -n "${SUBCMD}" ]] || { sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+[[ -z "${TOOK_MIN}" || "${TOOK_MIN}" =~ ^[0-9]+$ ]] || die "--took must be a whole number of minutes"
 cd "${LOOP_DIR}" || die "loop-dir not found: ${LOOP_DIR}"
 PLAN="loop.json"
 NOTES="loop.notes.jsonl"
@@ -94,12 +98,24 @@ validate_plan() {
     if [[ "$(jq -r '.gate.artifact // false' <<<"$s")" == "true" && "$(jq -r '.produces | length' <<<"$s")" == "0" ]]; then
       err "stage ${name}: artifact gate with empty .produces is unprovable"
     fi
+    [[ "$(jq -r 'if .gate | has("expects") then (.gate.expects | type == "string") else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .gate.expects must be a string"
+    [[ "$(jq -r 'if has("with") then (.with | type == "object" and (to_entries | all(.value | type == "string"))) else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .with must be a map of string keys to string paths/values"
+    [[ "$(jq -r 'if has("batchable") then (.batchable | (type == "boolean") or (type == "object" and (.max | type == "number" and . >= 1))) else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .batchable must be true, false, or { \"max\": N ≥ 1 }"
+    [[ "$(jq -r 'if has("timeoutMinutes") then (.timeoutMinutes | type == "number" and . > 0) else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .timeoutMinutes must be a positive number"
+    [[ "$(jq -r '.approval.graduation.resetOn // "any-attempt" | . == "any-attempt" or . == "new-findings"' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .approval.graduation.resetOn must be \"any-attempt\" or \"new-findings\""
     local of; of="$(jq -r '.onFail // empty' <<<"$s")"
     if [[ -n "${of}" ]]; then
       local oi; oi="$(plan "[.stages[].name] | index(\"${of}\") // -1")"
       [[ "${oi}" -ge 0 && "${oi}" -lt "$i" ]] || err "stage ${name}: .onFail '${of}' must name an earlier stage"
     fi
   done
+  [[ "$(plan 'if .policy | has("stageTimeoutMinutes") then (.policy.stageTimeoutMinutes | type == "number" and . > 0) else true end')" == "true" ]] \
+    || err ".policy.stageTimeoutMinutes must be a positive number"
   [[ "${ok}" == "1" ]] || return 1
 }
 
@@ -125,14 +141,17 @@ item_flag() { # $1=item → "cancelled" | "parked<TAB><state><TAB><note>" | ""
   fi
 }
 
-append_note() { # builds one well-formed line; args: item op [stage] [state] [n] [note]
-  local item="$1" op="$2" stage="${3:-}" state="${4:-}" n="${5:-}" text="${6:-}"
+append_note() { # builds one well-formed line; args: item op [stage] [state] [n] [note] [took_min] [no_new_findings]
+  local item="$1" op="$2" stage="${3:-}" state="${4:-}" n="${5:-}" text="${6:-}" took="${7:-}" nnf="${8:-}"
   jq -cn --arg ts "$(iso_now)" --arg item "${item}" --arg op "${op}" \
-        --arg stage "${stage}" --arg state "${state}" --arg n "${n}" --arg note "${text}" '
+        --arg stage "${stage}" --arg state "${state}" --arg n "${n}" --arg note "${text}" \
+        --arg took "${took}" --arg nnf "${nnf}" '
     {ts:$ts, item:$item, op:$op}
     + (if $stage != "" then {stage:$stage} else {} end)
     + (if $state != "" then {state:$state} else {} end)
     + (if $n     != "" then {n:($n|tonumber)} else {} end)
+    + (if $took  != "" then {took_min:($took|tonumber)} else {} end)
+    + (if $nnf   == "1" then {newFindings:false} else {} end)
     + (if $note  != "" then {note:$note} else {} end)' >> "${NOTES}"
 }
 
@@ -184,15 +203,26 @@ hashes_match_trailer() { # $1=sha $2=key → 0 if every trailer path=hash matche
 }
 
 stage_graduated() { # $1=stage-name $2=afterCleanPasses → 0 if graduated
-  local need="$2" streak=0 line op stage
+  local need="$2" streak=0 pending=0 line op stage nf reset_on
   [[ -f "${NOTES}" ]] || return 1
+  local si; si="$(plan "[.stages[].name] | index(\"$1\") // -1")"
+  reset_on="$(plan ".stages[$si].approval.graduation.resetOn // \"any-attempt\"")"
   while IFS= read -r line; do
     [[ -n "${line}" ]] || continue
     op="$(jq -r '.op' <<<"${line}")"; stage="$(jq -r '.stage // ""' <<<"${line}")"
     [[ "${stage}" == "$1" ]] || continue
     case "${op}" in
-      approve) streak=$((streak+1)) ;;
-      attempt) streak=0 ;;
+      attempt) pending=1 ;;
+      approve)
+        # LOOP.md §6: under resetOn "new-findings", an approve note carrying
+        # newFindings:false continues the count across the attempts it covers
+        nf="$(jq -r 'if .newFindings == false then "false" else "" end' <<<"${line}")"
+        if [[ "${pending}" == "1" && ! ( "${reset_on}" == "new-findings" && "${nf}" == "false" ) ]]; then
+          streak=1
+        else
+          streak=$((streak+1))
+        fi
+        pending=0 ;;
     esac
   done < "${NOTES}"
   [[ "${streak}" -ge "${need}" ]]
@@ -305,42 +335,54 @@ cmd_status() {
 
 stage_pick() { # $1=stage-index $2=items-json-array → one pick object
   jq -c --argjson si "$1" --argjson items "$2" \
-    '.stages[$si] | {stage:.name, executor:.executor, instructions:(.instructions // null), batchable:(.batchable // false), items:$items}' \
+    '.stages[$si] as $s
+     | {stage:$s.name, executor:$s.executor, instructions:($s.instructions // null),
+        with:($s.with // null),
+        timeoutMinutes:($s.timeoutMinutes // .policy.stageTimeoutMinutes // null),
+        batchable:($s.batchable // false), items:$items}' \
     <<<"${PLAN_JSON}"
 }
 
-next_json() { # pick objects: {stage, executor, instructions, batchable, items:[...]}
+next_json() { # pick objects: {stage, executor, instructions, with, timeoutMinutes, batchable, items:[...]}
+  # LOOP.md §8.2: same-stage batchable items split into chunks of ≤ batchable.max,
+  # each chunk one executor call; the first policy.parallel pick units are emitted.
   local parallel; parallel="$(plan '.policy.parallel // 1')"
-  local slots="${parallel}" line item stage sub pick
-  declare -a batch_stages=() batch_items=() picks=()
+  local line item stage sub pick
+  declare -a unit_stages=() unit_items=() unit_counts=()
   while IFS= read -r line; do
-    [[ "${slots}" -gt 0 ]] || break
     [[ "$(jq -r '.state' <<<"${line}")" == "at" ]] || continue
     sub="$(jq -r '.substate' <<<"${line}")"
     [[ "${sub}" == "awaiting-approval" ]] && continue   # human's move, not an agent pick
     item="$(jq -r '.item' <<<"${line}")"; stage="$(jq -r '.stage' <<<"${line}")"
     local si; si="$(plan "[.stages[].name] | index(\"${stage}\")")"
-    if [[ "$(plan ".stages[$si].batchable // false")" == "true" ]]; then
-      local k found=0
-      for k in "${!batch_stages[@]}"; do
-        if [[ "${batch_stages[$k]}" == "${stage}" ]]; then
-          batch_items[$k]="${batch_items[$k]},\"${item}\""; found=1
+    local is_batch bmax
+    is_batch="$(plan ".stages[$si].batchable // false | . != false")"
+    bmax="$(plan ".stages[$si].batchable | if type == \"object\" then (.max // 0) else 0 end")"  # 0 = no max
+    if [[ "${is_batch}" == "true" ]]; then
+      local k joined=0
+      for k in "${!unit_stages[@]}"; do
+        [[ "${unit_stages[$k]}" == "${stage}" ]] || continue
+        if [[ "${bmax}" == "0" || "${unit_counts[$k]}" -lt "${bmax}" ]]; then
+          unit_items[$k]="${unit_items[$k]},\"${item}\""
+          unit_counts[$k]=$(( unit_counts[$k] + 1 ))
+          joined=1; break
         fi
       done
-      if [[ "${found}" == "0" ]]; then
-        batch_stages+=("${stage}"); batch_items+=("\"${item}\""); slots=$((slots-1))
+      if [[ "${joined}" == "0" ]]; then
+        unit_stages+=("${stage}"); unit_items+=("\"${item}\""); unit_counts+=(1)
       fi
     else
-      pick="$(stage_pick "${si}" "[\"${item}\"]")"
-      picks+=("${pick}")
-      slots=$((slots-1))
+      unit_stages+=("${stage}"); unit_items+=("\"${item}\""); unit_counts+=(1)
     fi
   done < <(status_json)
-  local k
-  for k in "${!batch_stages[@]}"; do
-    local si; si="$(plan "[.stages[].name] | index(\"${batch_stages[$k]}\")")"
-    pick="$(stage_pick "${si}" "[${batch_items[$k]}]")"
+  local k emitted=0
+  declare -a picks=()
+  for k in "${!unit_stages[@]}"; do
+    [[ "${emitted}" -lt "${parallel}" ]] || break
+    local si; si="$(plan "[.stages[].name] | index(\"${unit_stages[$k]}\")")"
+    pick="$(stage_pick "${si}" "[${unit_items[$k]}]")"
     picks+=("${pick}")
+    emitted=$((emitted+1))
   done
   printf '%s\n' "${picks[@]+"${picks[@]}"}"
 }
@@ -389,6 +431,7 @@ cmd_gate() {
 
   local trailers="" f
   while IFS= read -r f; do trailers+="Inputs: ${f}=$(hash_file "${f}")"$'\n'; done < <(inputs_of "${item}" "${si}")
+  [[ -n "${TOOK_MIN}" ]] && trailers+="Took: ${TOOK_MIN}m"$'\n'
   local produced; produced="$(expand_produces "${item}" "${si}")"
   if [[ "$(plan ".stages[$si].produces | length")" -gt 0 && -z "${produced}" ]]; then
     die "gate passed but no produced files found to commit (produces mismatch?)"
@@ -429,7 +472,7 @@ cmd_note() {
       [[ -n "${NOTE_STAGE}" ]] || die "attempt needs --stage"
       local n max; n="$(( $(attempt_count "${item}" "${NOTE_STAGE}") + 1 ))"
       max="$(plan '.policy.maxAttempts // 3')"
-      append_note "${item}" attempt "${NOTE_STAGE}" "" "${n}" "${NOTE_TEXT}"
+      append_note "${item}" attempt "${NOTE_STAGE}" "" "${n}" "${NOTE_TEXT}" "${TOOK_MIN}"
       echo "loop: attempt ${n}/${max} recorded for ${item} @ ${NOTE_STAGE}"
       if [[ "${n}" -ge "${max}" ]]; then
         append_note "${item}" park "" "needs-human" "" "retry budget exhausted at ${NOTE_STAGE}"
@@ -437,11 +480,29 @@ cmd_note() {
       fi ;;
     approve)
       [[ -n "${NOTE_STAGE}" ]] || die "approve needs --stage"
-      append_note "${item}" approve "${NOTE_STAGE}" "" "" "${NOTE_TEXT}" ;;
+      append_note "${item}" approve "${NOTE_STAGE}" "" "" "${NOTE_TEXT}" "" \
+        "$([[ "${NO_NEW_FINDINGS}" == "1" ]] && echo 1)" ;;
     unpark|cancel)
       append_note "${item}" "${op}" "" "" "" "${NOTE_TEXT}" ;;
   esac
   [[ "${op}" == "attempt" ]] || echo "loop: ${op} noted for ${item}"
+}
+
+run_with_timeout() { # $1=command string  $2=timeout minutes ("" = none) → cmd rc, or 124 on timeout
+  local cmd="$1" tmin="${2:-}"
+  if [[ -z "${tmin}" ]]; then bash -c "${cmd}"; return $?; fi
+  local secs; secs="$(awk -v m="${tmin}" 'BEGIN{printf "%d", m*60}')"
+  bash -c "${cmd}" &
+  local pid=$! deadline=$(( $(date +%s) + secs ))
+  while kill -0 "${pid}" 2>/dev/null; do
+    if [[ "$(date +%s)" -ge "${deadline}" ]]; then
+      kill "${pid}" 2>/dev/null || true; sleep 2; kill -9 "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      return 124
+    fi
+    sleep 5
+  done
+  wait "${pid}"
 }
 
 cmd_run() {
@@ -493,9 +554,44 @@ cmd_run() {
     } > "${pf}"
     rlog "iter ${iter}/${max_iters}: stage $(jq -r '.stage' <<<"${pick}") items $(jq -r '.items|join(",")' <<<"${pick}")"
     local cmd="${cmd_tmpl//\{PROMPT_FILE\}/${pf}}"
-    if ! bash -c "${cmd}" >>"${log}" 2>&1; then
+    local stage_name tmo notes_before=0 rc=0 t_start t_end took
+    stage_name="$(jq -r '.stage' <<<"${pick}")"
+    tmo="$(jq -r '.timeoutMinutes // empty' <<<"${pick}")"
+    [[ -f "${NOTES}" ]] && notes_before="$(wc -l < "${NOTES}" | tr -d ' ')"
+    t_start="$(date +%s)"
+    run_with_timeout "${cmd}" "${tmo}" >>"${log}" 2>&1 || rc=$?
+    t_end="$(date +%s)"
+    took=$(( (t_end - t_start + 59) / 60 ))
+    if [[ "${rc}" == "124" ]]; then
+      rlog "iter ${iter}: executor timeout after ${tmo}m (LOOP.md §5) — banking partial work"
+    elif [[ "${rc}" != "0" ]]; then
       rlog "iter ${iter}: agent command exited non-zero (see ${log})"
     fi
+    # LOOP.md §4 partial banking + §7 machine-written attempt notes: for each item the
+    # session did not advance, gate whatever is on disk; commit passes, note the rest.
+    local it
+    while IFS= read -r it; do
+      local pos cur_stage
+      pos="$(position_of "${it}")"; cur_stage="$(cut -f1 <<<"${pos}")"
+      [[ "${cur_stage}" == "${stage_name}" ]] || continue   # advanced or routed elsewhere
+      if "${SCRIPT_PATH}" gate "${it}" "${stage_name}" --loop-dir "$(pwd)" --took "${took}" >>"${log}" 2>&1; then
+        rlog "iter ${iter}: banked ${it} @ ${stage_name} (gate passed on disk state)"
+        continue
+      fi
+      local noted=0
+      if [[ -f "${NOTES}" ]]; then
+        noted="$(tail -n +"$((notes_before + 1))" "${NOTES}" 2>/dev/null \
+          | jq -cs --arg i "${it}" --arg s "${stage_name}" \
+              '[.[] | select(.item == $i and ((.op == "attempt" and .stage == $s) or .op == "park" or .op == "cancel"))] | length')" \
+          || noted=0
+      fi
+      if [[ "${noted:-0}" == "0" ]]; then
+        local why="auto: executor session ended without pass or note (loop run)"
+        [[ "${rc}" == "124" ]] && why="auto: timeout after ${tmo}m (loop run)"
+        "${SCRIPT_PATH}" note attempt "${it}" --stage "${stage_name}" --note "${why}" --took "${took}" --loop-dir "$(pwd)" >>"${log}" 2>&1 || true
+        rlog "iter ${iter}: attempt note machine-written for ${it} @ ${stage_name}"
+      fi
+    done < <(jq -r '.items[]' <<<"${pick}")
   done
   rlog "halt: max-iters ${max_iters} reached"
   return 1
