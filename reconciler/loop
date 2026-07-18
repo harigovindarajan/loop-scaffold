@@ -1,0 +1,608 @@
+#!/usr/bin/env bash
+#
+# loop — reconciler CLI for a v2 (artifact-graph) loop. See LOOP.md; this tool adds
+# NO rules — it mechanizes reconcile/pick/gate/note/run so the compliant path is the
+# cheapest path. Dependencies: bash, git, jq, shasum|sha256sum.
+#
+# Usage:
+#   loop status   [--loop-dir DIR] [--json]     derive every item's position (also validates)
+#   loop next     [--loop-dir DIR] [--json]     print the next pick(s)
+#   loop gate     <item> <stage> [--took MIN] [--loop-dir DIR]  run the gate; commit on pass (LOOP.md §4)
+#   loop note     <park|unpark|attempt|approve|cancel> <item>
+#                 [--stage S] [--state blocked|needs-human] [--note TEXT]
+#                 [--took MIN] [--no-new-findings] [--loop-dir DIR]
+#   loop validate [--loop-dir DIR]              validate loop.json only
+#   loop run      [--loop-dir DIR] [--max-iters N]  fresh-session pump (reconciler.json)
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
+KERNEL="${SCRIPT_DIR}/../LOOP.md"
+
+die()  { echo "loop: $*" >&2; exit 2; }
+warn() { echo "loop: warning: $*" >&2; }
+
+command -v jq  >/dev/null || die "jq is required"
+command -v git >/dev/null || die "git is required"
+
+hash_file() {
+  if command -v shasum >/dev/null; then shasum -a 256 "$1" | awk '{print $1}';
+  else sha256sum "$1" | awk '{print $1}'; fi
+}
+
+iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+iso_to_epoch() { # ISO-8601 Z → unix epoch (BSD or GNU date)
+  date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null \
+    || date -u -d "$1" +%s 2>/dev/null \
+    || echo 0
+}
+
+# --- global args ------------------------------------------------------------------------
+LOOP_DIR="."
+JSON_OUT=0
+MAX_ITERS_ARG=""
+POSITIONAL=()
+SUBCMD="${1:-}"; [[ $# -gt 0 ]] && shift
+NOTE_STAGE=""; NOTE_STATE=""; NOTE_TEXT=""; TOOK_MIN=""; NO_NEW_FINDINGS=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --loop-dir)  LOOP_DIR="${2:?}"; shift 2 ;;
+    --json)      JSON_OUT=1; shift ;;
+    --max-iters) MAX_ITERS_ARG="${2:?}"; shift 2 ;;
+    --stage)     NOTE_STAGE="${2:?}"; shift 2 ;;
+    --state)     NOTE_STATE="${2:?}"; shift 2 ;;
+    --note)      NOTE_TEXT="${2:?}"; shift 2 ;;
+    --took)      TOOK_MIN="${2:?}"; shift 2 ;;
+    --no-new-findings) NO_NEW_FINDINGS=1; shift ;;
+    -h|--help)   sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)           POSITIONAL+=("$1"); shift ;;
+  esac
+done
+
+[[ -n "${SUBCMD}" ]] || { sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+[[ -z "${TOOK_MIN}" || "${TOOK_MIN}" =~ ^[0-9]+$ ]] || die "--took must be a whole number of minutes"
+cd "${LOOP_DIR}" || die "loop-dir not found: ${LOOP_DIR}"
+PLAN="loop.json"
+NOTES="loop.notes.jsonl"
+[[ -f "${PLAN}" ]] || die "no ${PLAN} in $(pwd)"
+git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git repository (LOOP.md requires one)"
+HAS_COMMITS=1; git rev-parse HEAD >/dev/null 2>&1 || HAS_COMMITS=0
+
+PLAN_JSON="$(cat "${PLAN}")"
+plan() { jq -r "$1" <<<"${PLAN_JSON}"; }
+
+# --- plan validation ----------------------------------------------------------------------
+validate_plan() {
+  local ok=1 err
+  err() { echo "invalid plan: $*" >&2; ok=0; }
+  [[ "$(plan '.version // empty')" == "2" ]] || err ".version must be 2"
+  [[ "$(plan '.items | length')" -gt 0 ]] 2>/dev/null || err ".items must be a non-empty array"
+  [[ "$(plan '.items | length')" == "$(plan '.items | unique | length')" ]] || err ".items must be unique"
+  while IFS= read -r id; do
+    [[ "${id}" =~ ^[A-Za-z0-9._-]+$ ]] || err "item id '${id}' has unsafe characters"
+  done < <(plan '.items[]')
+  local n; n="$(plan '.stages | length')"
+  [[ "${n}" -gt 0 ]] 2>/dev/null || err ".stages must be a non-empty array"
+  [[ "$(plan '[.stages[].name] | length')" == "$(plan '[.stages[].name] | unique | length')" ]] \
+    || err "stage names must be unique"
+  local i
+  for ((i=0; i<n; i++)); do
+    local s; s="$(plan ".stages[$i]")"
+    local name; name="$(jq -r '.name // empty' <<<"$s")"
+    [[ -n "${name}" ]] || err "stage $i: missing .name"
+    [[ -n "$(jq -r '.executor // empty' <<<"$s")" ]] || err "stage ${name}: missing .executor"
+    local gk; gk="$(jq -r '[.gate | (has("run")), (has("artifact"))] | map(select(.)) | length' <<<"$s" 2>/dev/null || echo 0)"
+    [[ "${gk}" == "1" ]] || err "stage ${name}: .gate must have exactly one of {run, artifact}"
+    if [[ "$(jq -r '.gate.artifact // false' <<<"$s")" == "true" && "$(jq -r '.produces | length' <<<"$s")" == "0" ]]; then
+      err "stage ${name}: artifact gate with empty .produces is unprovable"
+    fi
+    [[ "$(jq -r 'if .gate | has("expects") then (.gate.expects | type == "string") else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .gate.expects must be a string"
+    [[ "$(jq -r 'if has("with") then (.with | type == "object" and (to_entries | all(.value | type == "string"))) else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .with must be a map of string keys to string paths/values"
+    [[ "$(jq -r 'if has("batchable") then (.batchable | (type == "boolean") or (type == "object" and (.max | type == "number" and . >= 1))) else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .batchable must be true, false, or { \"max\": N ≥ 1 }"
+    [[ "$(jq -r 'if has("timeoutMinutes") then (.timeoutMinutes | type == "number" and . > 0) else true end' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .timeoutMinutes must be a positive number"
+    [[ "$(jq -r '.approval.graduation.resetOn // "any-attempt" | . == "any-attempt" or . == "new-findings"' <<<"$s")" == "true" ]] \
+      || err "stage ${name}: .approval.graduation.resetOn must be \"any-attempt\" or \"new-findings\""
+    local of; of="$(jq -r '.onFail // empty' <<<"$s")"
+    if [[ -n "${of}" ]]; then
+      local oi; oi="$(plan "[.stages[].name] | index(\"${of}\") // -1")"
+      [[ "${oi}" -ge 0 && "${oi}" -lt "$i" ]] || err "stage ${name}: .onFail '${of}' must name an earlier stage"
+    fi
+  done
+  [[ "$(plan 'if .policy | has("stageTimeoutMinutes") then (.policy.stageTimeoutMinutes | type == "number" and . > 0) else true end')" == "true" ]] \
+    || err ".policy.stageTimeoutMinutes must be a positive number"
+  [[ "${ok}" == "1" ]] || return 1
+}
+
+# --- notes helpers --------------------------------------------------------------------------
+notes_for() { # $1=item → that item's note lines, in append order
+  [[ -f "${NOTES}" ]] && jq -c --arg i "$1" 'select(.item == $i)' "${NOTES}" || true
+}
+
+item_flag() { # $1=item → "cancelled" | "parked<TAB><state><TAB><note>" | ""
+  local last_park="" cancelled=0 line op
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    op="$(jq -r '.op' <<<"${line}")"
+    case "${op}" in
+      park)   last_park="${line}" ;;
+      unpark) last_park="" ;;
+      cancel) cancelled=1 ;;
+    esac
+  done < <(notes_for "$1")
+  if [[ "${cancelled}" == "1" ]]; then echo "cancelled"; return; fi
+  if [[ -n "${last_park}" ]]; then
+    jq -r '["parked", (.state // "blocked"), (.note // "")] | @tsv' <<<"${last_park}"
+  fi
+}
+
+append_note() { # builds one well-formed line; args: item op [stage] [state] [n] [note] [took_min] [no_new_findings]
+  local item="$1" op="$2" stage="${3:-}" state="${4:-}" n="${5:-}" text="${6:-}" took="${7:-}" nnf="${8:-}"
+  jq -cn --arg ts "$(iso_now)" --arg item "${item}" --arg op "${op}" \
+        --arg stage "${stage}" --arg state "${state}" --arg n "${n}" --arg note "${text}" \
+        --arg took "${took}" --arg nnf "${nnf}" '
+    {ts:$ts, item:$item, op:$op}
+    + (if $stage != "" then {stage:$stage} else {} end)
+    + (if $state != "" then {state:$state} else {} end)
+    + (if $n     != "" then {n:($n|tonumber)} else {} end)
+    + (if $took  != "" then {took_min:($took|tonumber)} else {} end)
+    + (if $nnf   == "1" then {newFindings:false} else {} end)
+    + (if $note  != "" then {note:$note} else {} end)' >> "${NOTES}"
+}
+
+# --- git / gate helpers ------------------------------------------------------------------
+pass_commit() { # $1=item $2=stage → sha or empty
+  [[ "${HAS_COMMITS}" == "1" ]] || return 0
+  git log --fixed-strings --grep "loop($1): $2 ✓" -1 --format=%H 2>/dev/null || true
+}
+
+expand_produces() { # $1=item $2=stage-index → matched existing files, one per line
+  local pat
+  while IFS= read -r pat; do
+    pat="${pat//\{item\}/$1}"
+    # shellcheck disable=SC2086
+    ( shopt -s nullglob; for f in ${pat}; do [[ -f "$f" ]] && echo "$f"; done )
+  done < <(plan ".stages[$2].produces[]")
+}
+
+produces_patterns_matched() { # $1=item $2=stage-index → 0 if every pattern matches ≥1 non-empty file
+  local pat ok=0
+  while IFS= read -r pat; do
+    pat="${pat//\{item\}/$1}"
+    local hit=0 f
+    while IFS= read -r f; do [[ -s "$f" ]] && hit=1; done \
+      < <( shopt -s nullglob; for f in ${pat}; do [[ -f "$f" ]] && echo "$f"; done )
+    [[ "${hit}" == "1" ]] || ok=1
+  done < <(plan ".stages[$2].produces[]")
+  return "${ok}"
+}
+
+inputs_of() { # $1=item $2=stage-index → files produced by earlier stages for this item
+  local j
+  for ((j=0; j<$2; j++)); do expand_produces "$1" "$j"; done | sort -u
+}
+
+trailer_lines() { # $1=sha $2=key → "path=hash" lines from that commit's message
+  git show -s --format=%B "$1" | sed -n "s/^$2: //p"
+}
+
+hashes_match_trailer() { # $1=sha $2=key → 0 if every trailer path=hash matches disk now
+  local line path want
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    path="${line%%=*}"; want="${line#*=}"
+    [[ -f "${path}" ]] || return 1
+    [[ "$(hash_file "${path}")" == "${want}" ]] || return 1
+  done < <(trailer_lines "$1" "$2")
+  return 0
+}
+
+stage_graduated() { # $1=stage-name $2=afterCleanPasses → 0 if graduated
+  local need="$2" streak=0 pending=0 line op stage nf reset_on
+  [[ -f "${NOTES}" ]] || return 1
+  local si; si="$(plan "[.stages[].name] | index(\"$1\") // -1")"
+  reset_on="$(plan ".stages[$si].approval.graduation.resetOn // \"any-attempt\"")"
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    op="$(jq -r '.op' <<<"${line}")"; stage="$(jq -r '.stage // ""' <<<"${line}")"
+    [[ "${stage}" == "$1" ]] || continue
+    case "${op}" in
+      attempt) pending=1 ;;
+      approve)
+        # LOOP.md §6: under resetOn "new-findings", an approve note carrying
+        # newFindings:false continues the count across the attempts it covers
+        nf="$(jq -r 'if .newFindings == false then "false" else "" end' <<<"${line}")"
+        if [[ "${pending}" == "1" && ! ( "${reset_on}" == "new-findings" && "${nf}" == "false" ) ]]; then
+          streak=1
+        else
+          streak=$((streak+1))
+        fi
+        pending=0 ;;
+    esac
+  done < "${NOTES}"
+  [[ "${streak}" -ge "${need}" ]]
+}
+
+has_valid_approval() { # $1=item $2=stage-name $3=pass-commit-sha → 0 if approve note ≥ commit time
+  [[ -f "${NOTES}" ]] || return 1
+  local commit_epoch; commit_epoch="$(git show -s --format=%ct "$3")"
+  local line ts
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    [[ "$(jq -r '.op' <<<"${line}")" == "approve" ]] || continue
+    [[ "$(jq -r '.stage // ""' <<<"${line}")" == "$2" ]] || continue
+    ts="$(jq -r '.ts' <<<"${line}")"
+    [[ "$(iso_to_epoch "${ts}")" -ge "${commit_epoch}" ]] && return 0
+  done < <(notes_for "$1")
+  return 1
+}
+
+attempt_count() { # $1=item $2=stage-name → attempts newer than last pass-commit
+  local sha epoch=0 line ts count=0
+  sha="$(pass_commit "$1" "$2")"
+  [[ -n "${sha}" ]] && epoch="$(git show -s --format=%ct "${sha}")"
+  [[ -f "${NOTES}" ]] || { echo 0; return; }
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    [[ "$(jq -r '.op' <<<"${line}")" == "attempt" ]] || continue
+    [[ "$(jq -r '.stage // ""' <<<"${line}")" == "$2" ]] || continue
+    ts="$(jq -r '.ts' <<<"${line}")"
+    [[ "$(iso_to_epoch "${ts}")" -ge "${epoch}" ]] && count=$((count+1))
+  done < <(notes_for "$1")
+  echo "${count}"
+}
+
+# --- position derivation (LOOP.md §2) -----------------------------------------------------
+# echoes: "<stage-name>\t<substate>"  or  "done\t-"
+position_of() { # $1=item
+  local item="$1" n i
+  n="$(plan '.stages | length')"
+  for ((i=0; i<n; i++)); do
+    local name sha
+    name="$(plan ".stages[$i].name")"
+    sha="$(pass_commit "${item}" "${name}")"
+    if [[ -z "${sha}" ]]; then
+      if [[ "$(plan ".stages[$i].produces | length")" -gt 0 ]] && produces_patterns_matched "${item}" "$i"; then
+        echo -e "${name}\tungated"; return
+      fi
+      echo -e "${name}\tpending"; return
+    fi
+    if ! hashes_match_trailer "${sha}" "Produces"; then
+      echo -e "${name}\tedited-after-pass"; return
+    fi
+    if ! hashes_match_trailer "${sha}" "Inputs"; then
+      echo -e "${name}\tstale"; return
+    fi
+    local grad_n; grad_n="$(plan ".stages[$i].approval.graduation.afterCleanPasses // empty")"
+    if [[ -n "$(plan ".stages[$i].approval // empty")" ]]; then
+      if ! { [[ -n "${grad_n}" ]] && stage_graduated "${name}" "${grad_n}"; }; then
+        if ! has_valid_approval "${item}" "${name}" "${sha}"; then
+          echo -e "${name}\tawaiting-approval"; return
+        fi
+      fi
+    fi
+  done
+  echo -e "done\t-"
+}
+
+# --- subcommands ---------------------------------------------------------------------------
+cmd_validate() { validate_plan && echo "loop: plan valid ($(plan '.items | length') items, $(plan '.stages | length') stages)"; }
+
+status_json() { # one JSON object per item on stdout
+  local item flag pos stage sub
+  while IFS= read -r item; do
+    flag="$(item_flag "${item}")"
+    case "${flag}" in
+      cancelled)
+        jq -cn --arg i "${item}" '{item:$i, state:"cancelled"}' ;;
+      parked*)
+        local pstate pnote
+        pstate="$(cut -f2 <<<"${flag}")"
+        pnote="$(cut -f3- <<<"${flag}")"
+        jq -cn --arg i "${item}" --arg s "${pstate}" --arg n "${pnote}" \
+          '{item:$i, state:"parked", parkState:$s, note:$n}' ;;
+      *)
+        pos="$(position_of "${item}")"
+        stage="$(cut -f1 <<<"${pos}")"; sub="$(cut -f2 <<<"${pos}")"
+        if [[ "${stage}" == "done" ]]; then
+          jq -cn --arg i "${item}" '{item:$i, state:"done"}'
+        else
+          jq -cn --arg i "${item}" --arg st "${stage}" --arg sb "${sub}" \
+            --arg a "$(attempt_count "${item}" "${stage}")" \
+            '{item:$i, state:"at", stage:$st, substate:$sb, attempts:($a|tonumber)}'
+        fi ;;
+    esac
+  done < <(plan '.items[]')
+}
+
+cmd_status() {
+  validate_plan || die "plan invalid — fix ${PLAN} first"
+  if git status --porcelain 2>/dev/null | grep -qv 'loop\.notes\.jsonl\|loop\.run\.log'; then
+    warn "dirty tree — ungated work present; positions below trust committed gates only"
+  fi
+  if [[ "${JSON_OUT}" == "1" ]]; then status_json | jq -cs '.'; return; fi
+  printf '%-16s %-10s %-16s %-20s %s\n' ITEM STATE STAGE SUBSTATE NOTE
+  status_json | while IFS= read -r line; do
+    jq -r '[.item, .state, (.stage // "-"), (.substate // .parkState // "-"),
+            (if .attempts != null and .attempts > 0 then "attempts:\(.attempts)" else (.note // "") end)] | @tsv' <<<"${line}"
+  done | awk -F'\t' '{printf "%-16s %-10s %-16s %-20s %s\n", $1, $2, $3, $4, $5}'
+}
+
+stage_pick() { # $1=stage-index $2=items-json-array → one pick object
+  jq -c --argjson si "$1" --argjson items "$2" \
+    '.stages[$si] as $s
+     | {stage:$s.name, executor:$s.executor, instructions:($s.instructions // null),
+        with:($s.with // null),
+        timeoutMinutes:($s.timeoutMinutes // .policy.stageTimeoutMinutes // null),
+        batchable:($s.batchable // false), items:$items}' \
+    <<<"${PLAN_JSON}"
+}
+
+next_json() { # pick objects: {stage, executor, instructions, with, timeoutMinutes, batchable, items:[...]}
+  # LOOP.md §8.2: same-stage batchable items split into chunks of ≤ batchable.max,
+  # each chunk one executor call; the first policy.parallel pick units are emitted.
+  local parallel; parallel="$(plan '.policy.parallel // 1')"
+  local line item stage sub pick
+  declare -a unit_stages=() unit_items=() unit_counts=()
+  while IFS= read -r line; do
+    [[ "$(jq -r '.state' <<<"${line}")" == "at" ]] || continue
+    sub="$(jq -r '.substate' <<<"${line}")"
+    [[ "${sub}" == "awaiting-approval" ]] && continue   # human's move, not an agent pick
+    item="$(jq -r '.item' <<<"${line}")"; stage="$(jq -r '.stage' <<<"${line}")"
+    local si; si="$(plan "[.stages[].name] | index(\"${stage}\")")"
+    local is_batch bmax
+    is_batch="$(plan ".stages[$si].batchable // false | . != false")"
+    bmax="$(plan ".stages[$si].batchable | if type == \"object\" then (.max // 0) else 0 end")"  # 0 = no max
+    if [[ "${is_batch}" == "true" ]]; then
+      local k joined=0
+      for k in "${!unit_stages[@]}"; do
+        [[ "${unit_stages[$k]}" == "${stage}" ]] || continue
+        if [[ "${bmax}" == "0" || "${unit_counts[$k]}" -lt "${bmax}" ]]; then
+          unit_items[$k]="${unit_items[$k]},\"${item}\""
+          unit_counts[$k]=$(( unit_counts[$k] + 1 ))
+          joined=1; break
+        fi
+      done
+      if [[ "${joined}" == "0" ]]; then
+        unit_stages+=("${stage}"); unit_items+=("\"${item}\""); unit_counts+=(1)
+      fi
+    else
+      unit_stages+=("${stage}"); unit_items+=("\"${item}\""); unit_counts+=(1)
+    fi
+  done < <(status_json)
+  local k emitted=0
+  declare -a picks=()
+  for k in "${!unit_stages[@]}"; do
+    [[ "${emitted}" -lt "${parallel}" ]] || break
+    local si; si="$(plan "[.stages[].name] | index(\"${unit_stages[$k]}\")")"
+    pick="$(stage_pick "${si}" "[${unit_items[$k]}]")"
+    picks+=("${pick}")
+    emitted=$((emitted+1))
+  done
+  printf '%s\n' "${picks[@]+"${picks[@]}"}"
+}
+
+cmd_next() {
+  validate_plan || die "plan invalid — fix ${PLAN} first"
+  local picks; picks="$(next_json)"
+  if [[ "${JSON_OUT}" == "1" ]]; then jq -cs '.' <<<"${picks:-}"; return; fi
+  if [[ -z "${picks}" ]]; then
+    echo "loop: no actionable items (done, parked, cancelled, or awaiting approval)"; return
+  fi
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    echo "pick: stage $(jq -r '.stage' <<<"$p")  executor $(jq -r '.executor' <<<"$p")  items $(jq -r '.items | join(", ")' <<<"$p")"
+    [[ "$(jq -r '.instructions // empty' <<<"$p")" ]] && echo "      instructions: $(jq -r '.instructions' <<<"$p")"
+    jq -r '.items[] as $i | "      then: loop gate \($i) \(.stage)"' <<<"$p"
+  done <<<"${picks}"
+}
+
+cmd_gate() {
+  local item="${POSITIONAL[0]:-}" stage="${POSITIONAL[1]:-}"
+  [[ -n "${item}" && -n "${stage}" ]] || die "usage: loop gate <item> <stage>"
+  validate_plan || die "plan invalid"
+  plan '.items[]' | grep -qx "${item}" || die "unknown item: ${item}"
+  local si; si="$(plan "[.stages[].name] | index(\"${stage}\") // -1")"
+  [[ "${si}" -ge 0 ]] || die "unknown stage: ${stage}"
+
+  local gate_desc
+  if [[ "$(plan ".stages[$si].gate.artifact // false")" == "true" ]]; then
+    gate_desc="artifact: $(plan ".stages[$si].produces | join(\", \")")"
+    if ! produces_patterns_matched "${item}" "${si}"; then
+      echo "loop: gate FAILED — a produces pattern matched no non-empty file" >&2
+      echo "loop: classify per LOOP.md §5 and record: loop note attempt|park ${item} --stage ${stage} --note '...'" >&2
+      exit 1
+    fi
+  else
+    local cmd out; cmd="$(plan ".stages[$si].gate.run")"; cmd="${cmd//\{item\}/${item}}"
+    gate_desc="${cmd}"
+    if ! out="$(bash -c "${cmd}" 2>&1)"; then
+      echo "loop: gate FAILED — ${cmd}" >&2
+      [[ -n "${out}" ]] && echo "${out}" >&2
+      echo "loop: classify per LOOP.md §5 and record: loop note attempt|park ${item} --stage ${stage} --note '...'" >&2
+      exit 1
+    fi
+  fi
+
+  local trailers="" f
+  while IFS= read -r f; do trailers+="Inputs: ${f}=$(hash_file "${f}")"$'\n'; done < <(inputs_of "${item}" "${si}")
+  [[ -n "${TOOK_MIN}" ]] && trailers+="Took: ${TOOK_MIN}m"$'\n'
+  local produced; produced="$(expand_produces "${item}" "${si}")"
+  if [[ "$(plan ".stages[$si].produces | length")" -gt 0 && -z "${produced}" ]]; then
+    die "gate passed but no produced files found to commit (produces mismatch?)"
+  fi
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    trailers+="Produces: ${f}=$(hash_file "${f}")"$'\n'
+  done <<<"${produced}"
+
+  if [[ -n "${produced}" ]]; then
+    while IFS= read -r f; do [[ -n "$f" ]] && git add -- "$f"; done <<<"${produced}"
+  fi
+  git commit --quiet --allow-empty -m "loop(${item}): ${stage} ✓" -m "Gate: ${gate_desc}
+${trailers}"
+  HAS_COMMITS=1
+  echo "loop: ${item} ${stage} ✓ committed ($(git rev-parse --short HEAD))"
+  if [[ -n "$(plan ".stages[$si].approval // empty")" ]]; then
+    local grad_n; grad_n="$(plan ".stages[$si].approval.graduation.afterCleanPasses // empty")"
+    if [[ -n "${grad_n}" ]] && stage_graduated "${stage}" "${grad_n}"; then
+      echo "loop: approval graduated for stage ${stage} — mechanical gate suffices"
+    else
+      echo "loop: awaiting human approval — loop note approve ${item} --stage ${stage}"
+    fi
+  fi
+}
+
+cmd_note() {
+  local op="${POSITIONAL[0]:-}" item="${POSITIONAL[1]:-}"
+  case "${op}" in park|unpark|attempt|approve|cancel) ;; *) die "usage: loop note <park|unpark|attempt|approve|cancel> <item>";; esac
+  [[ -n "${item}" ]] || die "usage: loop note <op> <item>"
+  plan '.items[]' | grep -qx "${item}" || die "unknown item: ${item}"
+  case "${op}" in
+    park)
+      [[ "${NOTE_STATE}" == "blocked" || "${NOTE_STATE}" == "needs-human" ]] \
+        || die "park needs --state blocked|needs-human"
+      append_note "${item}" park "" "${NOTE_STATE}" "" "${NOTE_TEXT}" ;;
+    attempt)
+      [[ -n "${NOTE_STAGE}" ]] || die "attempt needs --stage"
+      local n max; n="$(( $(attempt_count "${item}" "${NOTE_STAGE}") + 1 ))"
+      max="$(plan '.policy.maxAttempts // 3')"
+      append_note "${item}" attempt "${NOTE_STAGE}" "" "${n}" "${NOTE_TEXT}" "${TOOK_MIN}"
+      echo "loop: attempt ${n}/${max} recorded for ${item} @ ${NOTE_STAGE}"
+      if [[ "${n}" -ge "${max}" ]]; then
+        append_note "${item}" park "" "needs-human" "" "retry budget exhausted at ${NOTE_STAGE}"
+        echo "loop: budget exhausted — ${item} parked as needs-human (LOOP.md §5)"
+      fi ;;
+    approve)
+      [[ -n "${NOTE_STAGE}" ]] || die "approve needs --stage"
+      append_note "${item}" approve "${NOTE_STAGE}" "" "" "${NOTE_TEXT}" "" \
+        "$([[ "${NO_NEW_FINDINGS}" == "1" ]] && echo 1)" ;;
+    unpark|cancel)
+      append_note "${item}" "${op}" "" "" "" "${NOTE_TEXT}" ;;
+  esac
+  [[ "${op}" == "attempt" ]] || echo "loop: ${op} noted for ${item}"
+}
+
+run_with_timeout() { # $1=command string  $2=timeout minutes ("" = none) → cmd rc, or 124 on timeout
+  local cmd="$1" tmin="${2:-}"
+  if [[ -z "${tmin}" ]]; then bash -c "${cmd}"; return $?; fi
+  local secs; secs="$(awk -v m="${tmin}" 'BEGIN{printf "%d", m*60}')"
+  bash -c "${cmd}" &
+  local pid=$! deadline=$(( $(date +%s) + secs ))
+  while kill -0 "${pid}" 2>/dev/null; do
+    if [[ "$(date +%s)" -ge "${deadline}" ]]; then
+      kill "${pid}" 2>/dev/null || true; sleep 2; kill -9 "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      return 124
+    fi
+    sleep 5
+  done
+  wait "${pid}"
+}
+
+cmd_run() {
+  validate_plan || die "plan invalid"
+  local cfg="reconciler.json"
+  [[ -f "${cfg}" ]] || die "no ${cfg} in loop dir (copy reconciler/reconciler.example.json)"
+  local cmd_tmpl max_iters halt_parked
+  cmd_tmpl="$(jq -r '.command' "${cfg}")"
+  max_iters="${MAX_ITERS_ARG:-$(jq -r '.maxIters // 30' "${cfg}")}"
+  halt_parked="$(jq -r '.haltOnParked // true' "${cfg}")"
+  [[ -n "${cmd_tmpl}" && "${cmd_tmpl}" != "null" ]] || die "config .command is empty"
+  local scratch; scratch="$(mktemp -d "${TMPDIR:-/tmp}/loop-run.XXXXXX")"
+  # shellcheck disable=SC2064  — expand now: scratch is local and gone when the trap fires
+  trap "rm -rf '${scratch}'" EXIT
+  local log="loop.run.log"
+  rlog() { printf '%s %s\n' "$(iso_now)" "$*" | tee -a "${log}"; }
+
+  local iter=0 stalls=0 prev_snapshot=""
+  while [[ "${iter}" -lt "${max_iters}" ]]; do
+    if [[ "${halt_parked}" == "true" ]] && status_json | jq -e 'select(.state=="parked")' >/dev/null; then
+      rlog "halt: parked item(s) present"; status_json | jq -c 'select(.state=="parked")' | tee -a "${log}"; return 1
+    fi
+    local picks; picks="$(next_json)"
+    if [[ -z "${picks}" ]]; then rlog "idle: no actionable items"; return 0; fi
+    local snapshot; snapshot="$(status_json | jq -cs '.')"
+    if [[ "${snapshot}" == "${prev_snapshot}" ]]; then
+      stalls=$((stalls+1))
+      [[ "${stalls}" -ge 2 ]] && { rlog "halt: no progress across ${stalls} sessions"; return 1; }
+    else
+      stalls=0
+    fi
+    prev_snapshot="${snapshot}"
+    iter=$((iter+1))
+    local pick; pick="$(head -1 <<<"${picks}")"
+    local pf="${scratch}/prompt-${iter}.md"
+    {
+      echo "You are executing ONE pick of an artifact-graph loop (v2). Read the kernel first: ${KERNEL}"
+      echo
+      echo "Loop dir: $(pwd)"
+      echo "Pick (stage / executor / items):"
+      jq . <<<"${pick}"
+      echo
+      echo "Steps: read the stage's instructions doc (if any), do the stage's work for the item(s)"
+      echo "using the named executor (dispatch the subagent if it is not 'self'), then for EACH item run:"
+      jq -r --arg s "${SCRIPT_PATH}" --arg d "$(pwd)" '.items[] as $i | "  \($s) gate \($i) \(.stage) --loop-dir \($d)"' <<<"${pick}"
+      echo "On a gate failure, classify per LOOP.md §5 and record it:"
+      echo "  ${SCRIPT_PATH} note attempt|park <item> --stage <stage> --state blocked|needs-human --note '...' --loop-dir $(pwd)"
+      echo "Do exactly this pick, then stop."
+    } > "${pf}"
+    rlog "iter ${iter}/${max_iters}: stage $(jq -r '.stage' <<<"${pick}") items $(jq -r '.items|join(",")' <<<"${pick}")"
+    local cmd="${cmd_tmpl//\{PROMPT_FILE\}/${pf}}"
+    local stage_name tmo notes_before=0 rc=0 t_start t_end took
+    stage_name="$(jq -r '.stage' <<<"${pick}")"
+    tmo="$(jq -r '.timeoutMinutes // empty' <<<"${pick}")"
+    [[ -f "${NOTES}" ]] && notes_before="$(wc -l < "${NOTES}" | tr -d ' ')"
+    t_start="$(date +%s)"
+    run_with_timeout "${cmd}" "${tmo}" >>"${log}" 2>&1 || rc=$?
+    t_end="$(date +%s)"
+    took=$(( (t_end - t_start + 59) / 60 ))
+    if [[ "${rc}" == "124" ]]; then
+      rlog "iter ${iter}: executor timeout after ${tmo}m (LOOP.md §5) — banking partial work"
+    elif [[ "${rc}" != "0" ]]; then
+      rlog "iter ${iter}: agent command exited non-zero (see ${log})"
+    fi
+    # LOOP.md §4 partial banking + §7 machine-written attempt notes: for each item the
+    # session did not advance, gate whatever is on disk; commit passes, note the rest.
+    local it
+    while IFS= read -r it; do
+      local pos cur_stage
+      pos="$(position_of "${it}")"; cur_stage="$(cut -f1 <<<"${pos}")"
+      [[ "${cur_stage}" == "${stage_name}" ]] || continue   # advanced or routed elsewhere
+      if "${SCRIPT_PATH}" gate "${it}" "${stage_name}" --loop-dir "$(pwd)" --took "${took}" >>"${log}" 2>&1; then
+        rlog "iter ${iter}: banked ${it} @ ${stage_name} (gate passed on disk state)"
+        continue
+      fi
+      local noted=0
+      if [[ -f "${NOTES}" ]]; then
+        noted="$(tail -n +"$((notes_before + 1))" "${NOTES}" 2>/dev/null \
+          | jq -cs --arg i "${it}" --arg s "${stage_name}" \
+              '[.[] | select(.item == $i and ((.op == "attempt" and .stage == $s) or .op == "park" or .op == "cancel"))] | length')" \
+          || noted=0
+      fi
+      if [[ "${noted:-0}" == "0" ]]; then
+        local why="auto: executor session ended without pass or note (loop run)"
+        [[ "${rc}" == "124" ]] && why="auto: timeout after ${tmo}m (loop run)"
+        "${SCRIPT_PATH}" note attempt "${it}" --stage "${stage_name}" --note "${why}" --took "${took}" --loop-dir "$(pwd)" >>"${log}" 2>&1 || true
+        rlog "iter ${iter}: attempt note machine-written for ${it} @ ${stage_name}"
+      fi
+    done < <(jq -r '.items[]' <<<"${pick}")
+  done
+  rlog "halt: max-iters ${max_iters} reached"
+  return 1
+}
+
+case "${SUBCMD}" in
+  status)   cmd_status ;;
+  next)     cmd_next ;;
+  gate)     cmd_gate ;;
+  note)     cmd_note ;;
+  validate) cmd_validate ;;
+  run)      cmd_run ;;
+  *)        die "unknown subcommand: ${SUBCMD}" ;;
+esac

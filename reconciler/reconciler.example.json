@@ -1,0 +1,7 @@
+{
+  "command": "claude -p \"$(cat {PROMPT_FILE})\" --model sonnet --dangerously-skip-permissions",
+  "maxIters": 30,
+  "haltOnParked": true,
+  "_note": "Copy to <loop-dir>/reconciler.json. {PROMPT_FILE} is substituted by `loop run` with the generated per-pick prompt. haltOnParked (default true) stops the whole run on any parked item; set false to keep advancing actionable ones. Retry budget is a LOOP setting (loop.json policy.maxAttempts), not a runner one. Both reference commands run fully autonomous (no permission prompts) so each fresh session can write files, dispatch subagents, and gate its work unattended. Swap runtimes by editing .command only.",
+  "_alt_command_opencode": "opencode run --model openai/gpt5.4 --dangerously-skip-permissions \"$(cat {PROMPT_FILE})\""
+}

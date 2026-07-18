@@ -1,0 +1,16 @@
+# Planning and repo-establishment material — kept on disk, out of version control.
+# Everything directly under docs/ is ignored EXCEPT the compounding knowledge store.
+/docs/*
+!/docs/solutions/
+
+# Runtime artifacts a loop run emits into its loop dir — not source.
+loop.run.log
+loop.notes.jsonl
+reconciler.json
+
+# Machine noise and agent-session dumps — never source.
+.DS_Store
+opencode-session.json
+
+# Local agent guidance — kept on disk for local sessions, not shipped.
+CLAUDE.md
