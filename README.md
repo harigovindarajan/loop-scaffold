@@ -20,6 +20,11 @@ committed** — the commit is the acceptance.
 
 ## Quickstart
 
+Clone this repo anywhere; your loop lives in your own project's repo. Point your
+coding agent at [`LOOP.md`](LOOP.md) and [`CONSTRUCT.md`](CONSTRUCT.md), then prompt
+it with your pipeline in your own words (the worked example below shows one). Invoke
+the reconciler by path from your project, or pass `--loop-dir`.
+
 ```sh
 git init                      # the kernel requires a git repo
 # 1. build loop.json via CONSTRUCT.md (examples/ shows the shape), edit, commit it
@@ -116,6 +121,7 @@ dirty-tree rule intact ([`LOOP.md` §4](LOOP.md#4-the-gate-commit-invariant)).
 ```sh
 git add loop.json && git commit -m "accept: selenium→playwright plan"
 reconciler/loop validate      # ids unique, gates well-formed, onFail targets exist
+cp <loop-scaffold>/reconciler/reconciler.example.json reconciler.json  # loop run needs this — see reconciler/
 reconciler/loop run --max-iters 40   # batched probe, port→review per spec, test to green
 git log --grep='^loop(' --oneline    # the run history — no journal to keep
 ```
