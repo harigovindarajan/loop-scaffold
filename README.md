@@ -121,9 +121,12 @@ git log --grep='^loop(' --oneline    # the run history — no journal to keep
 ```
 
 Same four verbs as any other loop — only the `items`, the `gate` commands, and the two
-subagents changed. The protocol is fixed; your task fills in the blanks. Compose fresh:
-the [`examples/`](examples/) starters are example outputs, not shortcuts past the
-elicitation.
+subagents changed. The protocol is fixed; your task fills in the blanks. The executors
+in this example aren't hypothetical: [playwright-guardrails](https://github.com/harigovindarajan/playwright-guardrails)
+ships this migration's probe, writer, and reviewer as subagents, plus the canonical
+rules the review gate checks against — the kernel supplies the loop, guardrails supply
+the stages. Compose fresh: the [`examples/`](examples/) starters are example outputs,
+not shortcuts past the elicitation.
 
 ## What's in the repo
 
