@@ -31,6 +31,15 @@ The reference commands run the agent with permission prompts disabled — unatte
 operation trusts the *committed plan*, so review `loop.json` and each stage's
 instructions before starting `loop run`.
 
+The generated prompt points each session at the kernel and this script by absolute
+path, usually *outside* the loop dir. A harness that sandboxes reads to the working
+directory (e.g. opencode, whose `external_directory` permission auto-rejects in
+non-interactive runs) must be granted that path — see the note in
+[`reconciler.example.json`](reconciler.example.json) — or every session dies before
+reading the kernel and `loop run` machine-parks the items. Swapping `command` is the
+whole provider handoff: a loop started under one agent resumes under another by
+editing that one line, since positions derive from the repo, not the session.
+
 ## Known v0 limits
 
 - A stage's hashed inputs are the *per-item* artifacts of earlier stages; shared
