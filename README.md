@@ -1,6 +1,6 @@
-# Portable Agent Loop
+# loop-scaffold
 
-The spec behind **Relay** ([`STRATEGY.md`](STRATEGY.md)): the loop protocol for coding agents — as **docs, not a runtime**. Version 2, the
+The loop protocol for coding agents ([strategy](STRATEGY.md)) — as **docs, not a runtime**. Version 2, the
 **artifact-graph kernel**: the plan declares, per stage, the artifact it produces, the
 gate that proves it, and the executor that does it. An item's position is *derived* —
 the first stage whose gate doesn't pass — never written; every gate-pass is a git
